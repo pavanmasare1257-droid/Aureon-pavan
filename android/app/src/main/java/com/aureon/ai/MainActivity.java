@@ -179,6 +179,28 @@ public class MainActivity extends BridgeActivity {
                         : android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
                 w.setAttributes(lp);
             }
+            // v47: some phones (ColorOS/Realme/Oppo, MIUI, Funtouch) ignore the modern calls above and keep a black strip under the status bar.
+            // The older flags below are what those phones still obey; they are harmless on every other phone.
+            try {
+                w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+                w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+                w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+                w.addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);   // let the window extend under the status bar / cutout
+                android.view.View dv = w.getDecorView();
+                dv.setSystemUiVisibility(dv.getSystemUiVisibility()
+                        | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            } catch (Throwable ignored2) { /* cosmetics only */ }
+            // the WebView itself must not leave a gap or paint black above the page
+            try {
+                if (getBridge() != null && getBridge().getWebView() != null) {
+                    getBridge().getWebView().setBackgroundColor(0xFF0B0B14);
+                    getBridge().getWebView().setFitsSystemWindows(false);
+                }
+                android.view.View content = findViewById(android.R.id.content);
+                if (content != null) { content.setFitsSystemWindows(false); content.setPadding(content.getPaddingLeft(), 0, content.getPaddingRight(), content.getPaddingBottom()); }
+            } catch (Throwable ignored3) { /* cosmetics only */ }
             // whatever the phone still paints outside the page is app-dark instead of pure black
             w.getDecorView().setBackgroundColor(0xFF0B0B14);
             androidx.core.view.WindowInsetsControllerCompat c = androidx.core.view.WindowCompat.getInsetsController(w, w.getDecorView());

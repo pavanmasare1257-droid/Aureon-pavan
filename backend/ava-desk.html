@@ -345,6 +345,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
             <button class="btn g" id="bApk"><svg class="ic"><use href="#i-flask"/></svg>APK banao</button>
             <button class="btn g" id="bAtt" title="Zip (project) ya photo / screenshot do — Ava dekh ke wahi bana degi">📎 Zip / Photo</button><input type="file" id="fAtt" multiple accept=".zip,image/png,image/jpeg,image/webp,image/gif,.txt,.md,.js,.json,.html,.css,.py" style="display:none">
             <button class="btn d" id="bStop" style="display:none">Roko</button>
+            <button class="btn g" id="bHealth" title="Har Gemini / Groq key ko ek chhota test bhejta hai aur asli error dikhata hai">AI check</button>
           </div>
           <div class="m" id="msg"></div>
         </div>
@@ -603,7 +604,7 @@ function renderProg() { // the visible "what is Ava doing right now" panel (neve
   else if (q) {
     tx = '🧪 Prototype queue me (' + S.state.jailPending + ') — Ava ' + (blocked ? 'ruki hui hai' : 'likh rahi hai') + (job && job.brief ? ': "' + job.brief.slice(0, 50) + '"' : '');
     if (blocked) { cls += ' warn'; why = '⛔ ' + shortErr(job.lastError) + '. ' + job.attempts + ' baar try hua (' + ago(job.lastTry) + '). Ava har ' + (ji.retryEveryMin || 10) + ' min me khud dobara try karti hai. Naya/doosra AI key daalo ya "Roko" se queue saaf karo.'; }
-    log = ji.jobs.map(function (j) { return { t: j.lastTry || j.queuedAt, m: (j.brief || '(Ava ki apni soch)') + ' — ' + (j.attempts ? j.attempts + ' try, ' + shortErr(j.lastError) : 'start ho raha hai') }; });
+    log = ji.jobs.map(function (j) { return { t: j.lastTry || j.queuedAt, m: (j.brief || '(Ava ki apni soch)') + ' — ' + (j.attempts ? j.attempts + ' try, ' + shortErr(j.lastError) + ' [' + String(j.lastError || '').replace(/\s+/g, ' ').slice(0, 170) + ']' : 'start ho raha hai') }; });
   } else if (up) { tx = '⚡ Ava upgrade likh rahi hai…'; log = [{ t: Date.now(), m: 'Ava apna code padh ke proposal bana rahi hai (30–60 sec)' }]; }
   else {
     cls += ' idle'; var last = protoList().filter(function (j) { return !(j.apk && j.status === 'failed'); })[0];
@@ -1005,6 +1006,21 @@ $('#bProto').addEventListener('click', function () { doProto('#task'); });
 $('#bProto2').addEventListener('click', function () { doProto('#task2'); });
 $('#bProj').addEventListener('click', function () { doProject('#task'); });
 $('#bProj2').addEventListener('click', function () { doProject('#task2'); });
+$('#bHealth').addEventListener('click', function () {
+  var b = this; b.disabled = true; toast('AI check chal raha hai... (10-20 sec)', 8000);
+  jget(AVA + '/ai-health').then(function (d) {
+    b.disabled = false;
+    if (!d || !d.ok) { toast((d && d.error) || 'AI check nahi chala', 5000); return; }
+    var okN = d.results.filter(function (r) { return r.ok; }).length;
+    var lines = d.results.map(function (r) { return (r.ok ? 'OK    ' : 'FAIL  ') + r.prov + ' #' + r.n + ' ...' + r.tail + '  ' + r.model + (r.ok ? '  (' + r.ms + 'ms)' : '\n        ' + r.status + ': ' + r.msg); });
+    var box = document.createElement('div');
+    box.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(5,5,12,.94);padding:16px;overflow:auto;color:#dfe6ff;font:12px/1.5 monospace';
+    var h = document.createElement('div'); h.style.cssText = 'font:600 15px sans-serif;margin-bottom:8px'; h.textContent = 'AI check: ' + okN + ' / ' + d.results.length + ' chal rahe hain';
+    var pre = document.createElement('pre'); pre.style.cssText = 'white-space:pre-wrap;word-break:break-word;margin:0'; pre.textContent = lines.join('\n');
+    var x = document.createElement('button'); x.className = 'btn'; x.textContent = 'Band karo'; x.style.margin = '12px 0'; x.onclick = function () { box.remove(); };
+    box.appendChild(h); box.appendChild(x); box.appendChild(pre); document.body.appendChild(box);
+  }).catch(function (e) { b.disabled = false; toast('AI check fail: ' + e.message, 5000); });
+});
 $('#bStop').addEventListener('click', function () { jpost('/api/apk/cancel').catch(function () {}); jpost(ST + '/cancel').then(function () { return jpost(AVA + '/jail/queue/clear'); }).then(function () { toast('Roka ja raha hai…'); loadAll(); }); });
 $('#task').addEventListener('keydown', function (e) { if (e.key === 'Enter') doAuto('#task'); });
 $('#bGo').addEventListener('click', function () { doAuto('#task'); });

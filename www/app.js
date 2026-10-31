@@ -1773,28 +1773,6 @@ async function fixRounds({ lang, msgObj, steps, report, redraw, max = 3 }) {
   redraw();
   return { success, answer, line };
 }
-// Stop button: shows while the AI is answering or while auto test & fix is running.
-function updateStopBtn() {
-  const b = document.getElementById('btn-stop'); if (!b) return;
-  const typing = document.getElementById('typing-indicator');
-  const show = !!state.autoTesting || (typing && !typing.classList.contains('hidden'));
-  b.classList.toggle('hidden', !show);
-}
-(function initStopBtn() {
-  const go = () => {
-    const b = document.getElementById('btn-stop'), typing = document.getElementById('typing-indicator');
-    if (!b || b.dataset.wired) return; b.dataset.wired = '1';
-    b.addEventListener('click', () => {
-      state.stopAuto = true;
-      try { if (state.chatAbort) state.chatAbort.abort(); } catch (e) { /* already finished */ }
-      try { if (state.autoAbort) state.autoAbort.abort(); } catch (e) { /* already finished */ }
-      b.classList.add('hidden');
-    });
-    if (typing && typeof MutationObserver !== 'undefined') new MutationObserver(updateStopBtn).observe(typing, { attributes: true, attributeFilter: ['class'] });
-    updateStopBtn();
-  };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
-})();
 const isAutoFix = () => { try { return !window.aureonAutoFix || window.aureonAutoFix(); } catch (e) { return true; } };
 // Automatic mode (owner): when a Code/Coding answer brings its own tests, run them right away and, if they fail, fix & re-run up to 3 times.
 async function maybeAutoTest(msgDiv, msgObj) {
@@ -1803,7 +1781,7 @@ async function maybeAutoTest(msgDiv, msgObj) {
   if (!pick.lang) return;
   const steps = msgObj.steps;
   const redraw = () => { const old = msgDiv.querySelector('.sum-chip'); if (old) old.remove(); attachSummaryChip(msgDiv, steps, msgObj); if (!$('sheet-summary').classList.contains('hidden') && state.summaryOpenFor === msgObj) renderSummaryList(steps); };
-  state.autoTesting = true; state.stopAuto = false; state.autoAbort = new AbortController(); updateStopBtn();
+  state.autoTesting = true; state.stopAuto = false; state.autoAbort = new AbortController();
   const marker = { icon: 'terminal', label: 'Auto test: tests chal rahe hain…', status: 'ok' };
   steps.push(marker); redraw();
   try {
@@ -1820,7 +1798,7 @@ async function maybeAutoTest(msgDiv, msgObj) {
     if (e && e.name === 'AbortError') { marker.label = 'Auto test: roka gaya'; marker.status = 'error'; }
     else { marker.label = 'Auto test nahi hua'; marker.status = 'error'; marker.detail = String(e.message || e); }
   } finally {
-    state.autoTesting = false; state.autoAbort = null; updateStopBtn(); redraw(); saveChatSnapshot();
+    state.autoTesting = false; state.autoAbort = null; redraw(); saveChatSnapshot();
   }
 }
 function openSummary(steps, msgObj) {

@@ -138,5 +138,19 @@ async function research(prompt, opts) {
   }
   return { text: await text(prompt, { maxTokens: 5000 }), sources: [], grounded: false };
 }
+// One tiny real call per key x model (about 20 short requests, no cooldown bookkeeping) so the owner sees WHICH key/model fails and WHY.
+async function testKeys() {
+  const o = { maxTokens: 24, timeout: 20000, system: 'Reply with exactly the single word: ok' };
+  const jobs = [];
+  const gm = geminiModels().slice(0, 2);
+  geminiKeys().forEach((key, ki) => gm.forEach((model) => jobs.push({ prov: 'Gemini', n: ki + 1, key, model, run: (s) => callGemini(s, [{ text: 'Say ok' }], o) })));
+  groqKeys().forEach((key, ki) => groqModels().forEach((model) => jobs.push({ prov: 'Groq', n: ki + 1, key, model, run: (s) => callGroq(s, [{ role: 'system', content: o.system }, { role: 'user', content: 'Say ok' }], o) })));
+  return Promise.all(jobs.map(async (j) => {
+    let r; const t0 = Date.now();
+    try { r = await j.run({ prov: j.prov === 'Gemini' ? 'g' : 'q', key: j.key, model: j.model, id: 'test' }); } catch (e) { r = { status: 0, text: '', err: (e && e.message) || 'network' }; }
+    const ok = !!(r.text && String(r.text).trim());
+    return { prov: j.prov, n: j.n, tail: String(j.key).slice(-4), model: j.model, ok, status: r.status, ms: Date.now() - t0, msg: ok ? '' : String(r.err || (r.finish ? 'finish ' + r.finish : 'empty answer')).replace(/\s+/g, ' ').slice(0, 220) };
+  }));
+}
 const available = () => !!(geminiKeys().length || groqKeys().length || (global.__avaSelf && global.__avaSelf.llmText));
-module.exports = { text, groqText, groqKeys, geminiKeys, vision, research, available, nextReadyMs, status, _t: { cool, keyBan, modelBan, penalize, slotsFor, usable, SIMPLE_NAME } };
+module.exports = { text, testKeys, groqText, groqKeys, geminiKeys, vision, research, available, nextReadyMs, status, _t: { cool, keyBan, modelBan, penalize, slotsFor, usable, SIMPLE_NAME } };

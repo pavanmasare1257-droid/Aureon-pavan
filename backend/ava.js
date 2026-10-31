@@ -270,7 +270,8 @@ module.exports = function createAva({ getDb, admin, callGemini: callGeminiRaw, c
   // Ava Lab (Sentinel dashboard, backend/ava-self.js): lets Ava write her own upgrade drafts with HER brain and read her live signals.
   // Read-only hook: it can only produce text; files are changed solely by the owner's Approve click in Sentinel.
   global.__avaSelf = {
-    llm: (prompt) => callGemini([{ role: 'user', content: prompt }], 'You are Ava reviewing your own source code. Output JSON only.', false),
+    // Gemini keys x models first, then Groq keys x models, each slot with its own cooldown (llm-text.js). Old Gemini-only path = fallback when no key is visible to it.
+    llm: (prompt) => require('./llm-text').text(prompt, { system: 'You are Ava reviewing your own source code. Output JSON only.', maxTokens: 16000 }),
     // text-only hook for Ava Designer (HTML in a delimited format, NOT json). 'Style rules:' keeps server.js from appending chat-style rules.
     llmText: (prompt) => callGemini([{ role: 'user', content: prompt }], 'You are Ava, a world-class UI designer working in your private design studio. Style rules: follow the requested output format exactly; output only what the format asks — no chat, no explanation, no markdown fences.', false),
     signals: () => ({ mind: mind.brainSummary() }),
