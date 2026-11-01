@@ -852,6 +852,13 @@ async function sendMessage() {
   state.currentMessages.push(userMessage);
   saveChatSnapshot();
 
+  // Docs (v35): "resume bana do", "isme skills jodo", "mere docs" -> an editable doc card right in the chat, in every mode.
+  if (!image && !fileText && !fileName && !sentImages.length && window.AureonDocs) {
+    let docHandled = false;
+    try { docHandled = await window.AureonDocs.chatIntent(text); } catch (e) { docHandled = false; }
+    if (docHandled) { turnOverrideModel = null; return; }
+  }
+
   // Offline-capable shortcut: battery / open app / set alarm never need the
   // AI backend at all — if the message clearly asks for one of these, do it
   // natively right away, with zero network involved.

@@ -39,6 +39,10 @@ public class MainActivity extends BridgeActivity {
         aureonKeyboardResize(); // fix: edge-to-edge breaks adjustResize, so the keyboard covered the input box
         // the page loads a moment after onCreate: push the cutout height again once it is there
         final android.os.Handler safeTopHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        // the Capacitor layout settles a moment after onCreate: clear any top gap again a few times
+        safeTopHandler.postDelayed(() -> { aureonFullscreen(); aureonFreeTopPadding(); }, 400);
+        safeTopHandler.postDelayed(() -> { aureonFullscreen(); aureonFreeTopPadding(); }, 1500);
+        safeTopHandler.postDelayed(() -> aureonFreeTopPadding(), 4000);
         safeTopHandler.postDelayed(() -> aureonPushSafeTop(lastSafeTopPx), 2500);
         safeTopHandler.postDelayed(() -> aureonPushSafeTop(lastSafeTopPx), 6000);
 
@@ -230,6 +234,11 @@ public class MainActivity extends BridgeActivity {
             while (p != null) {
                 p.setFitsSystemWindows(false);
                 if (p != content) p.setPadding(p.getPaddingLeft(), 0, p.getPaddingRight(), p.getPaddingBottom());
+                // a leftover TOP MARGIN on the page container (or the WebView itself) would also push the page down
+                android.view.ViewGroup.LayoutParams plp = p.getLayoutParams();
+                if (plp instanceof android.view.ViewGroup.MarginLayoutParams && ((android.view.ViewGroup.MarginLayoutParams) plp).topMargin != 0) {
+                    ((android.view.ViewGroup.MarginLayoutParams) plp).topMargin = 0; p.setLayoutParams(plp);
+                }
                 android.view.ViewParent pp = p.getParent();
                 p = (pp instanceof android.view.View) ? (android.view.View) pp : null;
             }
