@@ -22,40 +22,85 @@ import java.util.Locale;
 final class AureonCallAnnouncer {
     private AureonCallAnnouncer() {}
 
-    // Both AureonCallReceiver (static manifest receiver) AND
-    // AureonCallListenerService (its own dynamically-registered receiver)
-    // are active at the same time by design (see class comment below), so a
-    // single ring reliably delivers PHONE_STATE=RINGING to both of them
-    // within milliseconds of each other. Without this guard that meant the
-    // caller's name/number got spoken twice, back to back, on every call.
-    // Same pattern as ALARM_ANNOUNCE_COOLDOWN_MS in AureonAccessibilityService.
-    private static final long ANNOUNCE_COOLDOWN_MS = 3000;
-    private static volatile long lastAnnounceAt = 0;
+    // Android 10+ sends PHONE_STATE=RINGING TWICE for one ring: first WITHOUT the
+    // number, then (a moment later) WITH it. Old code announced on the first one
+    // ("You have an incoming call") and its cooldown then threw away the second one
+    // (the one that has the number) -> the caller's name was never spoken.
+    // Now: no number -> wait a little for the numbered broadcast, number -> speak
+    // the name at once; the same number is never spoken twice for one ring.
+    private static final long NO_NUMBER_WAIT_MS = 1600;
+    private static final android.os.Handler MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static volatile boolean ringing = false;
+    private static volatile String lastSpokenKey = "";
+    private static volatile long lastSpokenAt = 0;
+    private static Runnable pendingGeneric;
+
+    /** True while a call is ringing (used so "pickup" only answers when a call is really ringing). */
+    static boolean isRinging() { return ringing; }
 
     /** Call from any PHONE_STATE broadcast receiver, static or dynamic. */
-    static void handlePhoneStateIntent(Context context, Intent intent) {
+    static void handlePhoneStateIntent(final Context context, Intent intent) {
         if (intent == null || !TelephonyManager.ACTION_PHONE_STATE_CHANGED.equals(intent.getAction())) return;
 
         String state = intent.getStringExtra(TelephonyManager.EXTRA_STATE);
-        if (!TelephonyManager.EXTRA_STATE_RINGING.equals(state)) return;
+        if (!TelephonyManager.EXTRA_STATE_RINGING.equals(state)) {
+            // IDLE / OFFHOOK = ring is over (answered, declined or missed)
+            ringing = false;
+            lastSpokenKey = "";
+            synchronized (MAIN) {
+                if (pendingGeneric != null) { MAIN.removeCallbacks(pendingGeneric); pendingGeneric = null; }
+            }
+            return;
+        }
+        ringing = true;
 
-        long now = System.currentTimeMillis();
-        if (now - lastAnnounceAt < ANNOUNCE_COOLDOWN_MS) return; // duplicate fire for the same ring, ignore
-        lastAnnounceAt = now;
-
-        // Requires READ_CALL_LOG on Android 9+ (API 28) for this extra to
-        // actually be populated — with only READ_PHONE_STATE it's empty.
+        // Needs READ_CALL_LOG on Android 9+ for this extra to be filled.
         String number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER);
-        String name = (number != null && !number.trim().isEmpty())
-                ? lookupContactName(context, number) : null;
+        final boolean hasNumber = number != null && !number.trim().isEmpty();
+        final Context app = context.getApplicationContext();
 
+        if (!hasNumber) {
+            // wait for the broadcast that carries the number; if none comes, say the generic line
+            synchronized (MAIN) {
+                if (pendingGeneric != null) return; // already waiting
+                pendingGeneric = new Runnable() {
+                    @Override public void run() {
+                        synchronized (MAIN) { pendingGeneric = null; }
+                        if (!ringing) return;
+                        announceOnce(app, "generic", "You have an incoming call");
+                    }
+                };
+                MAIN.postDelayed(pendingGeneric, NO_NUMBER_WAIT_MS);
+            }
+            return;
+        }
+
+        synchronized (MAIN) {
+            if (pendingGeneric != null) { MAIN.removeCallbacks(pendingGeneric); pendingGeneric = null; }
+        }
+        String digits = number.replaceAll("[^0-9]", "");
+        String name = lookupContactName(app, number);
         String announcement = name != null
                 ? (name + " is calling")
-                : (number != null && !number.trim().isEmpty()
-                        ? ("Incoming call from " + number)
-                        : "You have an incoming call");
+                : ("Incoming call from " + spellNumber(number));
+        announceOnce(app, digits.isEmpty() ? number : digits, announcement);
+    }
 
-        speak(context.getApplicationContext(), announcement);
+    /** Speak once per (ring, caller): the static receiver AND the service receiver both fire for one ring. */
+    private static synchronized void announceOnce(Context app, String key, String text) {
+        long now = System.currentTimeMillis();
+        if (key.equals(lastSpokenKey) && now - lastSpokenAt < 8000) return;
+        lastSpokenKey = key;
+        lastSpokenAt = now;
+        speak(app, text);
+    }
+
+    /** "9876543210" -> "9 8 7 6 5 4 3 2 1 0" so the voice reads digit by digit. */
+    private static String spellNumber(String number) {
+        String d = number.replaceAll("[^0-9+]", "");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < d.length(); i++) { if (i > 0) sb.append(' '); sb.append(d.charAt(i)); }
+        return sb.toString();
     }
 
     private static String lookupContactName(Context context, String phoneNumber) {

@@ -99,6 +99,15 @@ public final class OfflineVoiceCommandEngine {
         for (String p : prefixes) if (lower.startsWith(p)) return true;
         return false;
     }
+    /** Short phrases like "pickup", "pick up", "phone uthao", "haan utha lo", "answer" count as "answer the call"
+     *  — but ONLY while a call is really ringing, so normal chat ("pickup truck") never triggers it. */
+    private static boolean isLoosePickup(String lower) {
+        if (!AureonCallAnnouncer.isRinging()) return false;
+        String t = lower.replaceAll("[^\\p{L}\\p{N} ]", " ").trim().replaceAll("\\s+", " ");
+        if (t.isEmpty() || t.split(" ").length > 5) return false;
+        return containsAny(t, "pickup", "pick up", "picup", "uthao", "utha lo", "utha do", "utha le", "uthalo",
+                "answer", "receive", "recieve", "attend", "haan bolo", "उठाओ", "उठा लो", "उठा दो", "रिसीव", "पिकअप", "पिक अप");
+    }
     private static boolean equalsAny(String lower, String... options) {
         for (String o : options) if (lower.equals(o)) return true;
         return false;
@@ -194,7 +203,8 @@ public final class OfflineVoiceCommandEngine {
             // pre-Oreo devices or if the permission wasn't granted. ----
             if (equalsAny(lower, "answer call", "answer the call", "pick up call", "pick up the call",
                     "receive call", "call uthao", "call utha lo", "call receive karo",
-                    "कॉल उठाओ", "कॉल रिसीव करो", "कॉल घ्या", "कॉल उचला")) {
+                    "कॉल उठाओ", "कॉल रिसीव करो", "कॉल घ्या", "कॉल उचला")
+                    || isLoosePickup(lower)) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                         && ContextCompat.checkSelfPermission(context, Manifest.permission.ANSWER_PHONE_CALLS)
                         == PackageManager.PERMISSION_GRANTED) {

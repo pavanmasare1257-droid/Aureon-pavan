@@ -608,7 +608,7 @@ module.exports = function createAvaStudio({ auth, DATA_DIR, callLLM, logEvent })
   // ---------------------------------------------------------------- routes
   const hits = { project: [], ui: [] };
   const budget = (kind, limit) => { const now = Date.now(); const a = hits[kind]; while (a.length && now - a[0] > 3600000) a.shift(); return a.length < limit; };
-  const bigJson = express.json({ limit: '40mb' });
+  const bigJson = express.json({ limit: (Number(process.env.AVA_UPLOAD_MB) > 0 ? Number(process.env.AVA_UPLOAD_MB) : 600) + 'mb' });   // v33: big uploads (APK / zip as base64). Memory-safety ceiling only — raise AVA_UPLOAD_MB if Render has the RAM
   router.post('/start', bigJson, (req, res) => {
     if (!auth.stepUp(req, res)) return;
     const b = req.body || {}; const kind = b.kind === 'ui' ? 'ui' : 'project';

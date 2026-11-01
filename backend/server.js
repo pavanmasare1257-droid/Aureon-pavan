@@ -29,7 +29,9 @@ app.use(cors());
 app.use(security.guard);      // IP block-list, rate-limit, URL signatures
 // GitHub webhook needs the RAW body for signature checking, so it is mounted before express.json()
 app.post('/api/security/github-webhook', express.raw({ type: '*/*', limit: '5mb' }), security.githubWebhook);
-app.use(express.json({ limit: '100mb' }));
+const _globalJson = express.json({ limit: '100mb' });
+// v33: Ava Studio uploads (zip / APK / photos, can be huge) are parsed by the route itself AFTER the owner login (see ava-studio.js bigJson), not here
+app.use((req, res, next) => (/^\/api\/sentinel\/ava-studio\/(start|attach-read)$/.test(req.path) ? next() : _globalJson(req, res, next)));
 app.use(security.bodyGuard);  // payload patterns (flagged by default)
 
 const PORT = process.env.PORT || 3000;
@@ -84,6 +86,8 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 app.use('/api/sentinel', sentinelDashboard);
 app.use('/api/security', security.router);
 app.use('/api/skills', skills.createRouter({ express, verifyAuth, getDb: () => db }));
+// Docs (v35): Ava writes / rewrites documents; docs live on the phone, server only does AI + PDF. See docs-studio.js.
+app.use('/api/docs', require('./docs-studio').createRouter({ express, verifyAuth, llm: require('./llm-text') }));
 // Apps & Automation (v29): connect any MCP / REST / webhook app and let Aureon automate it. See connect.js.
 const connect = require('./connect');
 const llmText = require('./llm-text');

@@ -873,6 +873,12 @@ try {
   router.use('/ava-studio', avaStudio.router);
 } catch (e) { console.error('[sentinel] Ava Studio disabled:', e.message); }
 
+// ---------------- HTML Maker: Ava writes a complete standalone HTML page (backend/html-maker.js) ----------------
+try {
+  const htmlMaker = require('./html-maker')({ auth, DATA_DIR, logEvent });
+  router.use('/ava-html', htmlMaker.router);
+} catch (e) { console.error('[sentinel] HTML Maker disabled:', e.message); }
+
 // ---------------- Boss Orders: owner priority order queue, never silently dropped (backend/boss-orders.js) ----------------
 try {
   const boss = require('./boss-orders')({ auth, DATA_DIR, logEvent });

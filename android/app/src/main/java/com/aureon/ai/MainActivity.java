@@ -37,6 +37,10 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         aureonFullscreen(); // v9: hide status + navigation bars (immersive)
         aureonKeyboardResize(); // fix: edge-to-edge breaks adjustResize, so the keyboard covered the input box
+        // the page loads a moment after onCreate: push the cutout height again once it is there
+        final android.os.Handler safeTopHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        safeTopHandler.postDelayed(() -> aureonPushSafeTop(lastSafeTopPx), 2500);
+        safeTopHandler.postDelayed(() -> aureonPushSafeTop(lastSafeTopPx), 6000);
 
         // Watchdog: catch any app-wide crash and report it (next launch) to
         // the backend, which emails the owner. See watchdog.js /
@@ -203,6 +207,7 @@ public class MainActivity extends BridgeActivity {
             } catch (Throwable ignored3) { /* cosmetics only */ }
             // whatever the phone still paints outside the page is app-dark instead of pure black
             w.getDecorView().setBackgroundColor(0xFF0B0B14);
+            try { w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0xFF0B0B14)); } catch (Throwable ignored4) { }
             androidx.core.view.WindowInsetsControllerCompat c = androidx.core.view.WindowCompat.getInsetsController(w, w.getDecorView());
             if (c != null) {
                 c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
@@ -212,6 +217,37 @@ public class MainActivity extends BridgeActivity {
     }
 
 
+    // ---- Black strip on top (real cause): AppCompat wraps the page in layouts that have fitsSystemWindows=true.
+    // On ColorOS/Realme (with the "stable layout" flags) they keep adding the status-bar height as TOP PADDING,
+    // so the page starts ~40dp lower and the phone paints that strip pure black. We switch that off on every
+    // parent of the content view, and give the page the real camera-cutout height as --safe-top ourselves.
+    private int lastSafeTopPx = -1;
+
+    private void aureonFreeTopPadding() {
+        try {
+            final android.view.View content = findViewById(android.R.id.content);
+            android.view.View p = content;
+            while (p != null) {
+                p.setFitsSystemWindows(false);
+                if (p != content) p.setPadding(p.getPaddingLeft(), 0, p.getPaddingRight(), p.getPaddingBottom());
+                android.view.ViewParent pp = p.getParent();
+                p = (pp instanceof android.view.View) ? (android.view.View) pp : null;
+            }
+            if (content != null) androidx.core.view.ViewCompat.requestApplyInsets(content);
+        } catch (Throwable ignored) { /* cosmetics only */ }
+    }
+
+    private void aureonPushSafeTop(int px) {
+        try {
+            lastSafeTopPx = px;
+            if (px < 0 || getBridge() == null || getBridge().getWebView() == null) return;
+            float d = getResources().getDisplayMetrics().density;
+            final String js = "document.documentElement.style.setProperty('--safe-top','" + Math.round(px / d) + "px')";
+            final android.webkit.WebView wv = getBridge().getWebView();
+            wv.post(() -> wv.evaluateJavascript(js, null));
+        } catch (Throwable ignored) { /* cosmetics only */ }
+    }
+
     // ---- Keyboard fix. With setDecorFitsSystemWindows(false) (edge-to-edge) Android ignores
     // android:windowSoftInputMode="adjustResize", so the keyboard slid OVER the chat box and the
     // page looked cut/odd. We now shrink the content area by the keyboard height ourselves, so the
@@ -220,7 +256,11 @@ public class MainActivity extends BridgeActivity {
         try {
             final android.view.View content = findViewById(android.R.id.content);
             if (content == null) return;
+            aureonFreeTopPadding();
             androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
+                try {
+                    aureonPushSafeTop(insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.displayCutout()).top);
+                } catch (Throwable ignoredCut) { }
                 int imeBottom = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime()).bottom;
                 boolean imeShown = insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime());
                 v.setPadding(0, 0, 0, imeShown ? imeBottom : 0);
@@ -233,6 +273,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) aureonFullscreen(); // bars come back after the keyboard / a dialog — hide them again
+        if (hasFocus) {
+            aureonFullscreen(); // bars come back after the keyboard / a dialog — hide them again
+            aureonFreeTopPadding();
+            aureonPushSafeTop(lastSafeTopPx);
+        }
     }
 }

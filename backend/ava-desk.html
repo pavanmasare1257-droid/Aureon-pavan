@@ -343,7 +343,7 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
             <button class="btn g" id="bProto"><svg class="ic"><use href="#i-flask"/></svg>Prototype</button>
             <select id="tgt" class="sz" title="Project ka size (lines)"><option value="8000">~8k lines</option><option value="50000">~50k</option><option value="200000">~200k</option><option value="1000000">~1 million</option></select><button class="btn g" id="bProj"><svg class="ic"><use href="#i-code"/></svg>Pura project</button>
             <button class="btn g" id="bApk"><svg class="ic"><use href="#i-flask"/></svg>APK banao</button>
-            <button class="btn g" id="bAtt" title="Zip (project) ya photo / screenshot do — Ava dekh ke wahi bana degi">📎 Zip / Photo</button><input type="file" id="fAtt" multiple accept=".zip,image/png,image/jpeg,image/webp,image/gif,.txt,.md,.js,.json,.html,.css,.py" style="display:none">
+            <button class="btn g" id="bAtt" title="Zip (project) ya photo / screenshot do — Ava dekh ke wahi bana degi">📎 Zip / Photo</button><input type="file" id="fAtt" multiple accept=".zip,.apk,application/vnd.android.package-archive,image/png,image/jpeg,image/webp,image/gif,.txt,.md,.js,.json,.html,.css,.py" style="display:none">
             <button class="btn d" id="bStop" style="display:none">Roko</button>
             <button class="btn g" id="bHealth" title="Har Gemini / Groq key ko ek chhota test bhejta hai aur asli error dikhata hai">AI check</button>
           </div>
@@ -397,10 +397,10 @@ body.busy .panel.glow{box-shadow:0 0 0 1px rgba(56,214,255,.28),0 0 30px rgba(90
           <div class="ph"><div><h3>Naya project / app</h3><small>Project aur app ek hi cheez hai — poori detail likho, Ava pura code bana degi.</small></div></div>
           <div class="pbody">
             <label for="pjKind" class="meta">Kya banana hai?</label>
-            <div class="row" style="margin-top:4px"><select id="pjKind" aria-label="Type"><option value="project">App / Project (zip me code)</option><option value="apk">Android APK</option><option value="ui">UI design (ek screen)</option></select><select id="pjTgt" aria-label="Size"><option value="8000">~8k lines</option><option value="20000">~20k lines</option><option value="50000">~50k lines</option></select></div>
+            <div class="row" style="margin-top:4px"><select id="pjKind" aria-label="Type"><option value="project">App / Project (zip me code)</option><option value="apk">Android APK</option><option value="ui">UI design (ek screen)</option><option value="html">HTML page (website / tool / game)</option></select><select id="pjTgt" aria-label="Size"><option value="8000">~8k lines</option><option value="20000">~20k lines</option><option value="50000">~50k lines</option></select></div>
             <textarea id="pjBrief" maxlength="6000" style="margin-top:8px" placeholder="Poora project likho: naam, kya karega, features, kaun use karega, kaisa dikhna chahiye…"></textarea>
             <div class="atts" id="pjAtts"></div>
-            <div class="row"><button class="btn g" id="pjPhoto" type="button">📷 Photo</button><button class="btn g" id="pjZip" type="button">🗜 Zip</button><input type="file" id="pjFile" accept="image/*,.zip,application/zip" multiple hidden><span class="cnt" id="pjCnt">0 / 6000</span><button class="btn" id="pjGo" type="button">⚡ Banao</button></div>
+            <div class="row"><button class="btn g" id="pjPhoto" type="button">📷 Photo</button><button class="btn g" id="pjZip" type="button">🗜 Zip</button><button class="btn g" id="pjHtmlList" type="button">🌐 HTML list</button><input type="file" id="pjFile" accept="image/*,.zip,.apk,application/zip,application/vnd.android.package-archive" multiple hidden><span class="cnt" id="pjCnt">0 / 6000</span><button class="btn" id="pjGo" type="button">⚡ Banao</button></div>
             <div class="meta" id="pjMsg" role="status" style="min-height:18px;margin-top:6px"></div>
           </div>
         </div>
@@ -505,12 +505,12 @@ function af(url, opts) {
 function jget(url) { return af(url).then(function (r) { return r.json(); }); }
 function jpost(url, body) { var o = { method: 'POST' }; if (body !== undefined) o.body = JSON.stringify(body); return af(url, o).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); }); }
 /* attachments: zip / photo / small code files -> base64, sent with the Studio start request */
-var ATT_MAX = 18 * 1024 * 1024;
+var ATT_MAX = 450 * 1024 * 1024;   /* v33: no small cap — server ceiling is AVA_UPLOAD_MB */
 S.att = [];
 function attBytes() { return S.att.reduce(function (n, a) { return n + a.size; }, 0); }
 function renderAtt() {
   var box = $('#atts'); if (!box) return;
-  box.innerHTML = S.att.map(function (a, i) { return '<span class="att">' + (a.img ? '🖼' : /\.zip$/i.test(a.name) ? '🗜' : '📄') + ' ' + esc(a.name) + ' · ' + (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + 'MB' : Math.ceil(a.size / 1024) + 'KB') + '<button data-rm="' + i + '" title="hatao">×</button></span>'; }).join('');
+  box.innerHTML = S.att.map(function (a, i) { return '<span class="att">' + (a.img ? '🖼' : /\.(zip|apk)$/i.test(a.name) ? '🗜' : '📄') + ' ' + esc(a.name) + ' · ' + (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + 'MB' : Math.ceil(a.size / 1024) + 'KB') + '<button data-rm="' + i + '" title="hatao">×</button></span>'; }).join('');
 }
 function addFiles(list) {
   var files = Array.prototype.slice.call(list || []);
@@ -1142,9 +1142,53 @@ function pjStart() {
     (att.length ? (pjMsg('Photo / zip padh rahi hai…'), jpost(ST + '/attach-read', { attachments: att }).then(function (r) { if (!r.ok) throw new Error(r.j.error || r.status); return send(r.j.context || ''); })) : send('')).catch(function (e) { pjMsg('Error: ' + e.message, 'er'); }).then(function () { $('#pjGo').disabled = false; });
     return;
   }
+  if (kind === 'html') {
+    if (b.length < 8) { pjMsg('Page ke baare me thoda likho: kya banana hai, kaisa dikhna chahiye.', 'er'); $('#pjGo').disabled = false; return; }
+    var sendH = function (ref) {
+      return jpost(HT + '/generate', { prompt: b.slice(0, 6000), context: ref || '' }).then(function (r) {
+        if (!r.ok) throw new Error(r.j.error || r.status);
+        S.att = []; renderAtt(); $('#pjBrief').value = ''; $('#pjCnt').textContent = '0 / 6000';
+        pjMsg('🌐 Ava HTML page bana rahi hai… (1–3 min, yahin khulega)', 'ok'); htmlPoll(r.j.id);
+      });
+    };
+    (att.length ? (pjMsg('Photo / zip / APK padh rahi hai…'), jpost(ST + '/attach-read', { attachments: att }).then(function (r) { if (!r.ok) throw new Error(r.j.error || r.status); return sendH(r.j.context || ''); })) : sendH('')).catch(function (e) { pjMsg('Error: ' + e.message, 'er'); }).then(function () { $('#pjGo').disabled = false; });
+    return;
+  }
   pjMsg('Ava kaam shuru kar rahi hai…');
   jpost(ST + '/start', { kind: kind, brief: b, targetLines: +$('#pjTgt').value || 8000, attachments: att.length ? att : undefined }).then(function (r) { done(r, kind === 'ui' ? '🎨 UI design shuru — side panel me live status dikhega.' : '🏗 Project shuru — side panel me live status dikhega, background me chalta rahega.'); })
     .catch(function (e) { pjMsg('Error: ' + e.message, 'er'); }).then(function () { $('#pjGo').disabled = false; });
+}
+var HT = '/api/sentinel/ava-html';
+var htmlTimer = null;
+function htmlPoll(id) {
+  if (htmlTimer) clearInterval(htmlTimer); var n = 0;
+  htmlTimer = setInterval(function () {
+    n++; jget(HT + '/' + id).then(function (m) {
+      if (m.status === 'working') { if (m.log && m.log.length) pjMsg('🌐 ' + m.log[m.log.length - 1].m, 'ok'); if (n > 90) { clearInterval(htmlTimer); pjMsg('Der lag rahi hai — HTML list me baad me dekho.', 'er'); } return; }
+      clearInterval(htmlTimer);
+      if (m.status === 'done') { pjMsg('✅ Page ready: ' + m.title, 'ok'); htmlShow(id); } else pjMsg('❌ ' + (m.error || 'page nahi bana'), 'er');
+    }).catch(function () { /* next tick */ });
+  }, 4000);
+}
+function htmlShow(id) {
+  toast('Page khul raha hai…');
+  Promise.all([af(HT + '/' + id + '/view').then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error(t); return t; }); }), jget(HT + '/' + id)]).then(function (a) {
+    var html = a[0], m = a[1];
+    $('#mTitle').textContent = '🌐 ' + (m.title || 'HTML page') + ' (v' + (m.version || 1) + ') — sandbox preview';
+    $('#mBody').innerHTML = '<div style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="row" style="padding:8px 12px;gap:8px"><button class="btn" id="htDl">⬇ HTML download</button><button class="btn g" id="htRev">✏ Badlav karao</button><button class="btn g" id="htDel">🗑 Delete</button></div><iframe id="htF" sandbox="allow-scripts allow-forms allow-modals" title="HTML preview" style="flex:1;min-height:60vh;width:100%;border:0;background:#fff"></iframe></div>';
+    $('#htF').srcdoc = html; $('#modal').classList.add('on'); redraw();
+    $('#htDl').onclick = function () { af(HT + '/' + id + '/download').then(function (r) { return r.blob(); }).then(function (b) { saveBlob(b, pjSlug({ title: m.title }) + '.html'); toast('Download ho gaya ✓'); }); };
+    $('#htRev').onclick = function () { var t = window.prompt('Kya badalna hai? (jaise: dark theme karo, contact form jodo)'); if (!t || t.trim().length < 4) return; jpost(HT + '/' + id + '/revise', { instruction: t.trim() }).then(function (r) { if (!r.ok) { toast('❌ ' + (r.j.error || r.status), 4500); return; } $('#modal').classList.remove('on'); pjMsg('🌐 Ava badlav kar rahi hai…', 'ok'); htmlPoll(id); }); };
+    $('#htDel').onclick = function () { if (!window.confirm('Ye page delete karu?')) return; af(HT + '/' + id, { method: 'DELETE' }).then(function () { $('#modal').classList.remove('on'); toast('Delete ho gaya'); }); };
+  }).catch(function (e) { toast('❌ ' + String(e.message || e).slice(0, 160), 5000); });
+}
+function htmlList() {
+  jget(HT + '/list').then(function (l) {
+    $('#mTitle').textContent = '🌐 Meri HTML pages';
+    $('#mBody').innerHTML = '<div style="flex:1;overflow:auto;padding:12px">' + (l.length ? l.map(function (x) { return '<div class="card" style="margin-bottom:8px"><b>' + esc(x.title) + '</b> <span class="meta">v' + x.version + ' · ' + esc(x.status) + (x.error ? ' · ' + esc(x.error) : '') + '</span><div style="margin-top:6px">' + (x.status === 'done' ? '<button class="btn" data-ht="' + esc(x.id) + '">Kholo</button>' : '') + '</div></div>'; }).join('') : '<div class="meta">Abhi koi page nahi — type me "HTML page" chuno aur brief likho.</div>') + '</div>';
+    $('#modal').classList.add('on'); redraw();
+    Array.prototype.forEach.call($('#mBody').querySelectorAll('[data-ht]'), function (b) { b.onclick = function () { htmlShow(b.getAttribute('data-ht')); }; });
+  }).catch(function (e) { toast('❌ ' + e.message, 4500); });
 }
 function pjSlug(j) { return String((j && j.title) || 'ava-project').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'ava-project'; }
 function pjDemoImage(id) {
@@ -1177,7 +1221,8 @@ function pjLaptop(id) {
   $('#pjGo').addEventListener('click', pjStart); $('#pjSend').addEventListener('click', function () { pjSend(); });
   $('#pjIn').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); pjSend(); } });
   $('#pjPhoto').addEventListener('click', function () { $('#pjFile').accept = 'image/*'; $('#pjFile').click(); });
-  $('#pjZip').addEventListener('click', function () { $('#pjFile').accept = '.zip,application/zip'; $('#pjFile').click(); });
+  $('#pjZip').addEventListener('click', function () { $('#pjFile').accept = '.zip,.apk,application/zip,application/vnd.android.package-archive'; $('#pjFile').click(); });
+  $('#pjHtmlList').addEventListener('click', htmlList);
   $('#pjFile').addEventListener('change', function (e) { addFiles(e.target.files); e.target.value = ''; });
   $('#pjAtts').addEventListener('click', function (e) { var b = e.target.closest('[data-rm]'); if (b) { S.att.splice(+b.getAttribute('data-rm'), 1); renderAtt(); } });
   $('#pjRow').addEventListener('click', function () { openView('project'); renderProject(); });
@@ -1197,7 +1242,7 @@ function pjLaptop(id) {
 var _renderAtt = renderAtt;
 renderAtt = function () {
   _renderAtt(); var box = $('#pjAtts'); if (!box) return;
-  box.innerHTML = S.att.map(function (a, i) { var ext = /\.png$/i.test(a.name) ? 'png' : /\.webp$/i.test(a.name) ? 'webp' : /\.gif$/i.test(a.name) ? 'gif' : 'jpeg'; return '<span class="att">' + (a.img ? '<img alt="" src="data:image/' + ext + ';base64,' + a.b64 + '">' : /\.zip$/i.test(a.name) ? '🗜' : '📄') + '<span>' + esc(a.name) + '</span>' + (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + 'MB' : Math.ceil(a.size / 1024) + 'KB') + '<button data-rm="' + i + '" title="hatao" aria-label="hatao">×</button></span>'; }).join('');
+  box.innerHTML = S.att.map(function (a, i) { var ext = /\.png$/i.test(a.name) ? 'png' : /\.webp$/i.test(a.name) ? 'webp' : /\.gif$/i.test(a.name) ? 'gif' : 'jpeg'; return '<span class="att">' + (a.img ? '<img alt="" src="data:image/' + ext + ';base64,' + a.b64 + '">' : /\.(zip|apk)$/i.test(a.name) ? '🗜' : '📄') + '<span>' + esc(a.name) + '</span>' + (a.size > 1048576 ? (a.size / 1048576).toFixed(1) + 'MB' : Math.ceil(a.size / 1024) + 'KB') + '<button data-rm="' + i + '" title="hatao" aria-label="hatao">×</button></span>'; }).join('');
 };
 
 
