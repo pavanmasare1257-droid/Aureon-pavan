@@ -1016,6 +1016,15 @@ $('#bHealth').addEventListener('click', function () {
     var box = document.createElement('div');
     box.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(5,5,12,.94);padding:16px;overflow:auto;color:#dfe6ff;font:12px/1.5 monospace';
     var h = document.createElement('div'); h.style.cssText = 'font:600 15px sans-serif;margin-bottom:8px'; h.textContent = 'AI check: ' + okN + ' / ' + d.results.length + ' chal rahe hain';
+    var groups = {}; d.results.forEach(function (r) { var k = r.prov + ' #' + r.n + ' ...' + r.tail; (groups[k] = groups[k] || []).push(r); });
+    var summary = Object.keys(groups).map(function (k) {
+      var g = groups[k], good = g.filter(function (r) { return r.ok; });
+      if (good.length) return 'OK    ' + k + ' chal rahi hai (' + good.map(function (r) { return r.model; }).join(', ') + ')';
+      if (g.every(function (r) { return r.status === 401 || r.status === 403; })) return 'GALAT ' + k + ' - ye key invalid hai, Render me hatao ya nayi daalo';
+      return 'FAIL  ' + k + ' - ' + g[0].status + ': ' + g[0].msg.slice(0, 110);
+    });
+    lines.unshift.apply(lines, ['--- Har key ka haal ---'].concat(summary, ['', '--- Detail ---']));
+    if (d.models) lines.unshift('Gemini models: ' + d.models.gemini.join(', '), 'Groq models: ' + d.models.groq.join(', '), '');
     var pre = document.createElement('pre'); pre.style.cssText = 'white-space:pre-wrap;word-break:break-word;margin:0'; pre.textContent = lines.join('\n');
     var x = document.createElement('button'); x.className = 'btn'; x.textContent = 'Band karo'; x.style.margin = '12px 0'; x.onclick = function () { box.remove(); };
     box.appendChild(h); box.appendChild(x); box.appendChild(pre); document.body.appendChild(box);

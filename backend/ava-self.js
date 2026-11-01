@@ -397,7 +397,7 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
   }
   router.post('/jail/queue/clear', async (req, res) => { if (!auth.stepUp(req, res)) return; auth.action(req, 'ava-lab jail queue clear'); const n = jailQueue.length; jailQueue.length = 0; res.json({ ok: true, cleared: n }); });
   router.get('/ai-health', async (req, res) => {
-    try { const llm = require('./llm-text'); res.json({ ok: true, results: await llm.testKeys(), status: llm.status() }); }
+    try { const llm = require('./llm-text'); const results = await llm.testKeys(); res.json({ ok: true, results, models: llm.models(), status: llm.status() }); }
     catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
   router.get('/jail/queue', async (req, res) => { res.json({ pending: jailQueue.length, jobs: jailQueue.map((j) => ({ id: j.id, brief: j.brief, attempts: j.attempts, queuedAt: j.queuedAt })) }); });
