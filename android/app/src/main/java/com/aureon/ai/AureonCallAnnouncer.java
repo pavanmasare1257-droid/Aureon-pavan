@@ -1,15 +1,24 @@
 package com.aureon.ai;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Bundle;
 import android.provider.ContactsContract;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.telephony.TelephonyManager;
 
+import java.util.ArrayList;
 import java.util.Locale;
+
+import androidx.core.content.ContextCompat;
 
 /**
  * Core "who's calling" logic, shared by AureonCallReceiver (manifest-
@@ -47,6 +56,7 @@ final class AureonCallAnnouncer {
             // IDLE / OFFHOOK = ring is over (answered, declined or missed)
             ringing = false;
             lastSpokenKey = "";
+            MAIN.post(new Runnable() { @Override public void run() { stopAnswerListening(); } });
             synchronized (MAIN) {
                 if (pendingGeneric != null) { MAIN.removeCallbacks(pendingGeneric); pendingGeneric = null; }
             }
@@ -178,9 +188,97 @@ final class AureonCallAnnouncer {
             if (sharedEngine != null) return;
             sharedEngine = new TextToSpeech(appContext.getApplicationContext(), status -> {
                 sharedEngineReady = (status == TextToSpeech.SUCCESS);
-                if (sharedEngineReady) sharedEngine.setLanguage(Locale.getDefault());
+                if (sharedEngineReady) {
+                    sharedEngine.setLanguage(Locale.getDefault());
+                    final Context app = appContext.getApplicationContext();
+                    sharedEngine.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                        @Override public void onStart(String utteranceId) {}
+                        @Override public void onError(String utteranceId) {}
+                        @Override public void onDone(String utteranceId) {
+                            if ("aureon_call_announce".equals(utteranceId)) startAnswerListening(app);
+                        }
+                    });
+                }
             });
         }
+    }
+
+    // ---- Hands-free answer: right after the caller is announced, listen for "pickup" / "utha lo" for ~15 seconds.
+    // (Before, Aureon only spoke the name and never listened, so "pickup" without "Hey Aureon" did nothing.)
+    private static SpeechRecognizer answerRecognizer;
+    private static int answerTries = 0;
+
+    static void startAnswerListening(final Context app) {
+        MAIN.post(new Runnable() { @Override public void run() { answerTries = 0; listenOnce(app); } });
+    }
+
+    private static void stopAnswerListening() {
+        if (answerRecognizer != null) {
+            try { answerRecognizer.cancel(); } catch (Throwable ignored) { }
+            try { answerRecognizer.destroy(); } catch (Throwable ignored) { }
+            answerRecognizer = null;
+        }
+    }
+
+    private static void listenOnce(final Context app) {
+        if (!ringing || answerTries >= 5) { stopAnswerListening(); return; }
+        if (ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return;
+        if (!SpeechRecognizer.isRecognitionAvailable(app)) return;
+        answerTries++;
+        stopAnswerListening();
+        try {
+            boolean onDevice = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+                    && SpeechRecognizer.isOnDeviceRecognitionAvailable(app);
+            answerRecognizer = onDevice ? SpeechRecognizer.createOnDeviceSpeechRecognizer(app) : SpeechRecognizer.createSpeechRecognizer(app);
+            answerRecognizer.setRecognitionListener(new RecognitionListener() {
+                @Override public void onReadyForSpeech(Bundle params) {}
+                @Override public void onBeginningOfSpeech() {}
+                @Override public void onRmsChanged(float rmsdB) {}
+                @Override public void onBufferReceived(byte[] buffer) {}
+                @Override public void onEndOfSpeech() {}
+                @Override public void onEvent(int eventType, Bundle params) {}
+                @Override public void onError(int error) { retryListen(app); }
+                @Override public void onPartialResults(Bundle partial) { checkHeard(app, partial, false); }
+                @Override public void onResults(Bundle results) { if (!checkHeard(app, results, true)) retryListen(app); }
+            });
+            Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, app.getPackageName());
+            i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+            i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+            i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+            answerRecognizer.startListening(i);
+        } catch (Throwable t) {
+            stopAnswerListening();
+        }
+    }
+
+    private static void retryListen(final Context app) {
+        MAIN.postDelayed(new Runnable() { @Override public void run() { listenOnce(app); } }, 350);
+    }
+
+    /** true if the user said "pickup" (or similar) and the call is being answered */
+    private static boolean checkHeard(final Context app, Bundle b, boolean isFinal) {
+        if (!ringing || b == null) return false;
+        ArrayList<String> list = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+        if (list == null) return false;
+        for (String heard : list) {
+            if (heard == null || !OfflineVoiceCommandEngine.isAnswerCommand(heard)) continue;
+            stopAnswerListening();
+            OfflineVoiceCommandEngine.handle(app, heard, new OfflineVoiceCommandEngine.Result() {
+                @Override public void onHandled(String message) {
+                    // say something only when answering was NOT possible (permission missing etc.)
+                    if (message != null && !message.startsWith("Answering")) speakPlain(app, message);
+                }
+            });
+            return true;
+        }
+        return false;
+    }
+
+    private static void speakPlain(Context appContext, String text) {
+        warmUp(appContext);
+        if (sharedEngineReady) sharedEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_msg");
     }
 
     private static void speak(Context appContext, String text) {
@@ -198,7 +296,7 @@ final class AureonCallAnnouncer {
             fallback[0].setLanguage(Locale.getDefault());
             fallback[0].setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String utteranceId) {}
-                @Override public void onDone(String utteranceId) { shutdownQuietly(); }
+                @Override public void onDone(String utteranceId) { shutdownQuietly(); startAnswerListening(appContext.getApplicationContext()); }
                 @Override public void onError(String utteranceId) { shutdownQuietly(); }
                 private void shutdownQuietly() {
                     if (fallback[0] != null) {

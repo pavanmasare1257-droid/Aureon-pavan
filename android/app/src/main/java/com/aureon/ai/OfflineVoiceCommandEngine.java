@@ -99,6 +99,16 @@ public final class OfflineVoiceCommandEngine {
         for (String p : prefixes) if (lower.startsWith(p)) return true;
         return false;
     }
+    /** True for "answer the call" phrases ("pickup", "utha lo", "answer call"...). Used by the ring-time listener. */
+    static boolean isAnswerCommand(String raw) {
+        String lower = raw == null ? "" : raw.toLowerCase(java.util.Locale.ROOT).trim();
+        if (lower.isEmpty()) return false;
+        return equalsAny(lower, "answer call", "answer the call", "pick up call", "pick up the call",
+                "receive call", "call uthao", "call utha lo", "call receive karo",
+                "\u0915\u0949\u0932 \u0909\u0920\u093e\u0913", "\u0915\u0949\u0932 \u0930\u093f\u0938\u0940\u0935 \u0915\u0930\u094b")
+                || isLoosePickup(lower);
+    }
+
     /** Short phrases like "pickup", "pick up", "phone uthao", "haan utha lo", "answer" count as "answer the call"
      *  — but ONLY while a call is really ringing, so normal chat ("pickup truck") never triggers it. */
     private static boolean isLoosePickup(String lower) {

@@ -1,5 +1,6 @@
 package com.aureon.ai;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -8,6 +9,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
 import android.telephony.TelephonyManager;
@@ -53,7 +56,25 @@ public class AureonCallListenerService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(NOTIFICATION_ID, buildNotification());
+        Notification n = buildNotification();
+        boolean started = false;
+        // microphone type lets the ring-time "pickup" listener record while the app is in the background
+        if (Build.VERSION.SDK_INT >= 30 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            try {
+                int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+                if (Build.VERSION.SDK_INT >= 34) types |= ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+                startForeground(NOTIFICATION_ID, n, types);
+                started = true;
+            } catch (Throwable ignored) { /* e.g. restarted from background: fall back below */ }
+        }
+        if (!started) {
+            try {
+                if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                else startForeground(NOTIFICATION_ID, n);
+            } catch (Throwable ignored) {
+                try { startForeground(NOTIFICATION_ID, n); } catch (Throwable ignored2) { /* keep running anyway */ }
+            }
+        }
         return START_STICKY;
     }
 
