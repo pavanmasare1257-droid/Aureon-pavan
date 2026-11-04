@@ -52,6 +52,8 @@ final class AureonCallAnnouncer {
         if (intent == null || !TelephonyManager.ACTION_PHONE_STATE_CHANGED.equals(intent.getAction())) return;
 
         String state = intent.getStringExtra(TelephonyManager.EXTRA_STATE);
+        if (TelephonyManager.EXTRA_STATE_OFFHOOK.equals(state)) AureonAwayMode.onOffhook(context.getApplicationContext());
+        else if (TelephonyManager.EXTRA_STATE_IDLE.equals(state)) AureonAwayMode.onIdle(context.getApplicationContext());
         if (!TelephonyManager.EXTRA_STATE_RINGING.equals(state)) {
             // IDLE / OFFHOOK = ring is over (answered, declined or missed)
             ringing = false;
@@ -77,6 +79,7 @@ final class AureonCallAnnouncer {
                     @Override public void run() {
                         synchronized (MAIN) { pendingGeneric = null; }
                         if (!ringing) return;
+                        if (AureonAwayMode.isActive(app)) { AureonAwayMode.onRinging(app, "", ""); return; }
                         announceOnce(app, "generic", "You have an incoming call");
                     }
                 };
@@ -90,6 +93,7 @@ final class AureonCallAnnouncer {
         }
         String digits = number.replaceAll("[^0-9]", "");
         String name = lookupContactName(app, number);
+        if (AureonAwayMode.isActive(app)) { AureonAwayMode.onRinging(app, number, name == null ? "" : name); return; }   // away mode: Ava takes the call
         String announcement = name != null
                 ? (name + " is calling")
                 : ("Incoming call from " + spellNumber(number));
@@ -209,6 +213,7 @@ final class AureonCallAnnouncer {
     private static int answerTries = 0;
 
     static void startAnswerListening(final Context app) {
+        if (AureonAwayMode.isActive(app)) return;
         MAIN.post(new Runnable() { @Override public void run() { answerTries = 0; listenOnce(app); } });
     }
 

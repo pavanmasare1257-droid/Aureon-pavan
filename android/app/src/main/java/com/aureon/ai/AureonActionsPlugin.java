@@ -111,6 +111,30 @@ public class AureonActionsPlugin extends Plugin {
     }
 
     // ---- Teach Ava: record what the user does, replay it on command ----
+    // ---- Away mode (Ava answers calls while the owner is busy) ----
+    private JSObject awayState() {
+        try { return new JSObject(AureonAwayMode.status(getContext()).toString()); } catch (Exception e) { return new JSObject(); }
+    }
+
+    @PluginMethod
+    public void awayStart(PluginCall call) {
+        String url = call.getString("backendUrl"), token = call.getString("token");
+        if (url == null || token == null || !url.startsWith("http")) { call.reject("backendUrl and token are required"); return; }
+        long until = call.getData().optLong("until", 0);
+        if (until <= System.currentTimeMillis()) until = System.currentTimeMillis() + 30L * 60000L;
+        AureonAwayMode.start(getContext(), url, token, call.getString("reason", "abhi busy hain"), call.getString("ownerName", "sir"), until);
+        call.resolve(awayState());
+    }
+
+    @PluginMethod
+    public void awayStop(PluginCall call) { AureonAwayMode.stop(getContext()); call.resolve(awayState()); }
+
+    @PluginMethod
+    public void awayStatus(PluginCall call) { call.resolve(awayState()); }
+
+    @PluginMethod
+    public void awayMarkReported(PluginCall call) { AureonAwayMode.markReported(getContext()); call.resolve(awayState()); }
+
     @PluginMethod
     public void getTeach(PluginCall call) { call.resolve(AvaTeach.status(getContext())); }
 

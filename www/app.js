@@ -599,13 +599,19 @@ function showAttachSheet(beforeOpen) {
     b.innerHTML = '<span style="font-size:22px;width:28px;text-align:center">' + icon + '</span><span><div>' + label + '</div><div style="font-weight:500;font-size:12px;color:#A69C87;margin-top:2px">' + sub + '</div></span>';
     b.onclick = () => { close(); if (beforeOpen) beforeOpen(); setTimeout(fn, 0); }; sheet.appendChild(b); };
   row(ic('image'), 'Photos', 'Ek saath kai photos chuno', () => $('image-input').click());
-  row(ic('file'), 'Files', 'PDF, zip, doc, txt, video', () => $('file-input').click());
+  row(ic('file'), 'Files', 'PDF, zip, doc, txt, html, code, video', () => $('file-input').click());
   wrap.onclick = (e) => { if (e.target === wrap) close(); };
   wrap.appendChild(sheet); document.body.appendChild(wrap);
   requestAnimationFrame(() => { sheet.style.transform = 'translateY(0)'; });
 }
 $('btn-attach-2')?.addEventListener('click', () => showAttachSheet());
 $('btn-attach')?.addEventListener('click', () => showAttachSheet(() => startChatFrom(''))); // home screen's attach has no preview bar of its own — hop into chat first
+
+// Files we can read as plain text (the picker used to allow only .txt, so .html / .css / .js / .json ... could not even be selected)
+const TEXT_FILE_EXT = /\.(txt|html?|css|m?js|jsx|ts|tsx|json|md|csv|tsv|xml|py|java|kt|yml|yaml|sql|sh|php|rb|go|rs|c|cpp|h|ini|log|toml)$/i;
+function isTextLikeFile(f) {
+  return f.type === 'text/plain' || /^text\//.test(f.type || '') || /(json|xml|javascript)/.test(f.type || '') || TEXT_FILE_EXT.test(f.name || '');
+}
 
 // files picked from the sheet go through the exact same handler as before
 $('file-input')?.addEventListener('change', (e) => {
@@ -667,10 +673,12 @@ $('image-input')?.addEventListener('change', (e) => {
       $('image-preview-bar').classList.remove('hidden');
     };
     reader.readAsDataURL(file);
-  } else if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+  } else if (isTextLikeFile(file)) {
+    // .txt, .html, .css, .js, .json, .md, .csv, code files ... are read as plain text; very long ones are cut so the AI request stays small
     const reader = new FileReader();
     reader.onload = () => {
-      state.pendingFileText = reader.result;
+      const TEXT_CAP = 300000, full = String(reader.result || '');
+      state.pendingFileText = full.length > TEXT_CAP ? full.slice(0, TEXT_CAP) + '\n\n[... file bahut badi thi, yahan se aage ka hissa kaat diya gaya ...]' : full;
       $('image-preview-thumb').classList.add('hidden');
       $('file-preview-label').classList.remove('hidden');
       $('attach-name').textContent = file.name;
@@ -851,6 +859,13 @@ async function sendMessage() {
   try { window.dispatchEvent(new CustomEvent('aureon:user-message', { detail: { text, count: sentImages.length, thumb: (sentImages[0] && sentImages[0].thumb) || '' } })); } catch (e) { /* optional */ }
   state.currentMessages.push(userMessage);
   saveChatSnapshot();
+
+  // Away mode (v41): "nahane ja raha hu 20 minute, call aaye to utha lena" -> Ava answers calls for that time; "main aa gaya" turns it off.
+  if (!image && !fileText && !fileName && !sentImages.length && window.AureonAway) {
+    let awayHandled = false;
+    try { awayHandled = await window.AureonAway.chatIntent(text); } catch (e) { awayHandled = false; }
+    if (awayHandled) { turnOverrideModel = null; return; }
+  }
 
   // Docs (v35): "resume bana do", "isme skills jodo", "mere docs" -> an editable doc card right in the chat, in every mode.
   if (!image && !fileText && !fileName && !sentImages.length && window.AureonDocs) {

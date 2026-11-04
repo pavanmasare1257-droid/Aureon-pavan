@@ -88,6 +88,8 @@ app.use('/api/security', security.router);
 app.use('/api/skills', skills.createRouter({ express, verifyAuth, getDb: () => db }));
 // Docs (v35): Ava writes / rewrites documents; docs live on the phone, server only does AI + PDF. See docs-studio.js.
 app.use('/api/docs', require('./docs-studio').createRouter({ express, verifyAuth, llm: require('./llm-text') }));
+// Away mode (v41): Ava answers calls while the owner is busy; the phone handles the call, this only writes Ava's next sentence + the summary.
+app.use('/api/away', require('./away-call').createRouter({ express, verifyAuth, llm: require('./llm-text') }));
 // Apps & Automation (v29): connect any MCP / REST / webhook app and let Aureon automate it. See connect.js.
 const connect = require('./connect');
 const llmText = require('./llm-text');
