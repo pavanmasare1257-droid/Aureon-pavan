@@ -47,7 +47,7 @@
   }
 
   var PKEY = 'aureon_away_prefs_v1';
-  function loadPrefs() { try { var p = JSON.parse(localStorage.getItem(PKEY) || '{}'); return { minutes: Number(p.minutes) || 30, reason: String(p.reason || ''), notes: String(p.notes || '') }; } catch (e) { return { minutes: 30, reason: '', notes: '' }; } }
+  function loadPrefs() { try { var p = JSON.parse(localStorage.getItem(PKEY) || '{}'); return { minutes: Number(p.minutes) || 30, reason: String(p.reason || ''), notes: String(p.notes || ''), free: !!p.free }; } catch (e) { return { minutes: 30, reason: '', notes: '', free: false }; } }
   function savePrefs(p) { try { localStorage.setItem(PKEY, JSON.stringify(p)); } catch (e) { /* storage full: ignore */ } }
 
   /** one place that switches away mode on (used by chat and by the dashboard) */
@@ -55,7 +55,7 @@
     var P = plugin();
     if (!P || !P.awayStart) throw new Error('Away mode sirf Aureon APK (phone) me chalta hai, browser me nahi.');
     var reason = String(o.reason || '').trim() || 'abhi busy hain';
-    var r = await post('/start', { minutes: o.minutes, reason: reason, ownerName: ownerName(), notes: o.notes || '' });
+    var r = await post('/start', { minutes: o.minutes, reason: reason, ownerName: ownerName(), notes: o.notes || '', free: !!o.free });
     await P.awayStart({ backendUrl: base(), token: r.token, until: r.until, reason: reason, ownerName: ownerName() });
     return r;
   }
@@ -70,8 +70,8 @@
     if (!P || !P.awayStart) { say('Away mode sirf Aureon APK (phone) me chalta hai, browser me nahi.'); return; }
     var prefs = loadPrefs(), minutes = parseMinutes(text), reason = reasonOf(text);
     if (reason === 'abhi call nahi le sakte' && prefs.reason) reason = prefs.reason;
-    await startAway({ minutes: minutes, reason: reason, notes: prefs.notes });
-    say('Theek hai, ' + minutes + ' minute ke liye away mode on. Is dauraan call aayegi to main utha lungi, caller ko bataungi ki main AI assistant hu aur baat record ho rahi hai, phir uski baat sunke jawab dungi' + (prefs.notes ? ' (aapke notes ke hisaab se)' : '') + ' aur sab yaad rakhke aapko batungi.\n\nBand karne ke liye "main aa gaya" likho. Notes aur settings ke liye Settings me "Away mode" kholo.');
+    await startAway({ minutes: minutes, reason: reason, notes: prefs.notes, free: prefs.free });
+    say('Theek hai, ' + minutes + ' minute ke liye away mode on. Is dauraan call aayegi to main utha lungi, caller ko bataungi ki main AI assistant hu aur baat record ho rahi hai, phir uski baat sunke jawab dungi' + (prefs.free ? ' (apni taraf se bhi)' : (prefs.notes ? ' (aapke notes ke hisaab se)' : '')) + ' aur sab yaad rakhke aapko batungi.\n\nBand karne ke liye "main aa gaya" likho. Notes aur settings ke liye Settings me "Away mode" kholo.');
   }
 
   async function report(auto) {
@@ -174,9 +174,13 @@
     var notes = el('textarea', FIELD + ';min-height:130px;resize:vertical'); notes.value = prefs.notes;
     notes.placeholder = 'Jaise:\nSir 7 baje tak free honge.\nDelivery wale parcel gate pe rakh dein.\nOffice ka kaam ho to email bhej dein.\nPaise ya OTP ki baat ho to sir khud call karenge.';
     c2.appendChild(notes);
-    c2.appendChild(el('div', 'font-size:12px;opacity:.65;margin-top:6px;line-height:1.5', 'Caller kuch kaam ka pooche to Ava sirf in notes se jawab degi. Jo notes me nahi hai uska andaza nahi lagayegi, bolegi ki sir ko bata dungi. OTP, bank ya paise ki baat kabhi nahi manegi.'));
+    c2.appendChild(el('div', 'font-size:12px;opacity:.65;margin-top:6px;line-height:1.5', 'Notes me jo likha hai Ava wahi caller ko batayegi. Aapke baare me jo notes me nahi hai uska andaza nahi lagayegi, bolegi ki sir ko bata dungi. OTP, bank ya paise ki baat kabhi nahi manegi.'));
+    var freeRow = el('label', 'display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:14px;line-height:1.45;cursor:pointer');
+    var free = el('input', 'margin-top:3px;width:20px;height:20px;flex:none'); free.type = 'checkbox'; free.checked = !!prefs.free;
+    freeRow.appendChild(free); freeRow.appendChild(el('span', null, 'Ava apni taraf se bhi jawab de (notes ke bahar ke sawal par bhi, jaise general sawal ya baat-cheet). Band rakhoge to sirf notes se jawab degi.'));
+    c2.appendChild(freeRow);
     var msg = el('div', 'font-size:13px;min-height:18px;margin-top:8px');
-    function readForm() { var m = Math.max(1, Math.min(720, parseInt(mins.value, 10) || 30)); return { minutes: m, reason: reason.value.trim(), notes: notes.value.trim().slice(0, 3000) }; }
+    function readForm() { var m = Math.max(1, Math.min(720, parseInt(mins.value, 10) || 30)); return { minutes: m, reason: reason.value.trim(), notes: notes.value.trim().slice(0, 3000), free: !!free.checked }; }
     var row = el('div', 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px');
     row.appendChild(button('Settings save karo', function () { savePrefs(readForm()); msg.style.color = '#7ee2a8'; msg.textContent = 'Save ho gaya.'; }));
     if (st.active && st.until > Date.now()) {
