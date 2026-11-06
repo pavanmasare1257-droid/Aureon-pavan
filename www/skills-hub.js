@@ -105,7 +105,7 @@
     UI.srcSel.value = S.src;
 
     var f = filtered();
-    UI.info.textContent = f.length + ' dikh rahi hain' + (S.mode ? ' · ' + S.sel.size + ' chuni hui' : ' · hatane ke liye "Select" dabao');
+    UI.info.textContent = f.length + UL(' shown', ' dikh rahi hain') + (S.mode ? ' · ' + S.sel.size + UL(' selected', ' chuni hui') : UL(' · press "Select" to remove', ' · hatane ke liye "Select" dabao'));
     f.slice(0, S.shown).forEach(function (s) { box.appendChild(buildRow(s)); });
     if (f.length > S.shown) {
       var more = el('button', BTN + 'width:100%;margin:10px 0', 'Aur dikhao (+100)'); more.addEventListener('click', function () { S.shown += 100; render(); });
@@ -123,7 +123,7 @@
       var toggle = function (fromBox) {
         if (S.sel.has(s.name)) S.sel.delete(s.name); else S.sel.add(s.name);
         cb.checked = S.sel.has(s.name);
-        var info = UI.info; if (info) info.textContent = filtered().length + ' dikh rahi hain · ' + S.sel.size + ' chuni hui';
+        var info = UI.info; if (info) info.textContent = filtered().length + UL(' shown · ', ' dikh rahi hain · ') + S.sel.size + UL(' selected', ' chuni hui');
         updateBar();
       };
       row.addEventListener('click', function (e) { if (e.target === cb) { toggle(); return; } toggle(); });
@@ -157,13 +157,13 @@
   async function deleteNames(names) {
     if (!names.length) return;
     var preview = names.slice(0, 5).join(', ') + (names.length > 5 ? ' … +' + (names.length - 5) + ' aur' : '');
-    if (!window.confirm(names.length + ' skill hatani hain?\n' + preview + '\n\nYe wapas nahi aayengi (dobara install karni padegi).')) return;
+    if (!window.confirm(names.length + UL(' skill(s) to remove?\n', ' skill hatani hain?\n') + preview + UL('\n\nThey will not come back (you must install them again).', '\n\nYe wapas nahi aayengi (dobara install karni padegi).'))) return;
     var done = 0;
     for (var i = 0; i < names.length; i += 400) {
       var chunk = names.slice(i, i + 400);
-      say('cs-msg', 'Hataa rahe hain… (' + done + '/' + names.length + ')');
+      say('cs-msg', UL('Removing… (', 'Hataa rahe hain… (') + done + '/' + names.length + ')');
       var j = await api('/api/skills/bulk-delete', 'POST', { names: chunk });
-      if (!j.ok) { say('cs-msg', (j.error || 'Delete fail hua') + ' — ' + done + ' skill hat chuki hain.', true); render(); return; }
+      if (!j.ok) { say('cs-msg', (j.error || UL('Delete failed', 'Delete fail hua')) + ' — ' + done + UL(' skill(s) were removed.', ' skill hat chuki hain.'), true); render(); return; }
       done += chunk.length; removeLocal(chunk);
     }
     say('cs-msg', done + ' skill hata di gayi.'); render();
@@ -171,8 +171,8 @@
   async function deleteSource() {
     var src = S.src; if (!src) return;
     var n = S.all.filter(function (s) { return srcOf(s) === src; }).length;
-    if (!window.confirm(shortSrc(src) + ' ki saari ' + n + ' skill hatani hain?\n\nYe wapas nahi aayengi (dobara install karni padegi).')) return;
-    say('cs-msg', 'Hataa rahe hain…');
+    if (!window.confirm(UL('Remove all ' + n + ' skill(s) from ' + shortSrc(src) + '?\n\nThey will not come back (you must install them again).', shortSrc(src) + ' ki saari ' + n + ' skill hatani hain?\n\nYe wapas nahi aayengi (dobara install karni padegi).'))) return;
+    say('cs-msg', UL('Removing…', 'Hataa rahe hain…'));
     var j = await api('/api/skills/bulk-delete', 'POST', { source: src });
     if (!j.ok) { say('cs-msg', j.error || 'Delete fail hua', true); return; }
     S.all = S.all.filter(function (s) { return srcOf(s) !== src; }); S.src = ''; S.sel.clear();

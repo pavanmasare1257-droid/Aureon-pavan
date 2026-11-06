@@ -20,7 +20,7 @@ function systemFor(a) {
   return [
     'You are Ava, the AI phone assistant of ' + a.owner + '. ' + a.owner + ' cannot take this call right now (' + a.reason + ').',
     'You are speaking with a caller on a LIVE phone call, so write short spoken sentences. The caller was already told you are an AI assistant and that the call is recorded.',
-    'Reply in simple Hinglish (Roman letters), at most 20 words, ONE idea per turn, polite and natural.',
+    (a.lang === 'hi' ? 'Reply in simple Hinglish (Roman letters)' : 'Reply in simple, clear English (even if the caller speaks Hindi, answer in English unless the caller clearly cannot follow English)') + ', at most 20 words, ONE idea per turn, polite and natural.',
     'Goal: find out who is calling and what the message / urgency is, and promise that you will pass it to ' + a.owner + '. Do not promise anything else.',
     a.free
       ? 'FREE MODE: besides the notes you may also answer the caller\'s general questions and small talk on your own, briefly and helpfully, as an AI assistant (general knowledge, simple explanations, polite conversation). Anything about ' + a.owner + ' personally that is not in the notes: do NOT guess, say you will pass it on. Never invent facts about ' + a.owner + '.'
@@ -54,7 +54,7 @@ function createRouter({ express, verifyAuth, llm }) {
     const b = req.body || {}; const minutes = Math.max(1, Math.min(MAX_MINUTES, Number(b.minutes) || 30));
     for (const [k, v] of keys) if (v.uid === req.verifiedUid) keys.delete(k);   // one live window per user
     const token = crypto.randomBytes(24).toString('hex'), until = Date.now() + minutes * 60000;
-    keys.set(token, { uid: req.verifiedUid, owner: clean(b.ownerName, 40) || 'sir', reason: clean(b.reason, 80) || 'abhi busy hain', notes: String(b.notes == null ? '' : b.notes).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]+/g, ' ').trim().slice(0, 3000), free: !!b.free, until, n: 0 });
+    keys.set(token, { uid: req.verifiedUid, owner: clean(b.ownerName, 40) || 'sir', reason: clean(b.reason, 80) || 'abhi busy hain', notes: String(b.notes == null ? '' : b.notes).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]+/g, ' ').trim().slice(0, 3000), free: !!b.free, lang: b.lang === 'hi' ? 'hi' : 'en', until, n: 0 });
     res.json({ token, until });
   });
 
@@ -67,10 +67,10 @@ function createRouter({ express, verifyAuth, llm }) {
     try {
       sweep();
       const a = keys.get(String(req.headers['x-away-key'] || ''));
-      if (!a || a.until < Date.now()) return res.status(401).json({ error: 'away window khatam' });
+      if (!a || a.until < Date.now()) return res.status(401).json({ error: 'The away window has ended' });
       if (++a.n > MAX_REPLIES) return res.status(429).json({ error: 'limit' });
       const b = req.body || {};
-      const said = clean(b.callerSaid, 400); if (!said) return res.status(400).json({ error: 'callerSaid khali hai' });
+      const said = clean(b.callerSaid, 400); if (!said) return res.status(400).json({ error: 'callerSaid is empty' });
       const hist = (Array.isArray(b.history) ? b.history : []).slice(-10).map((h) => (h && h.who === 'ava' ? 'AVA: ' : 'CALLER: ') + clean(h && h.text, 300)).join('\n');
       const prompt = 'CALL SO FAR:\n' + (hist || '(just started)') + '\n\nCALLER JUST SAID: ' + said + '\n\nNow write the next AVA line as JSON.';
       const out = parseReply(await Promise.race([llm.text(prompt, { system: systemFor(a), maxTokens: 220 }), new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 9000))]));
@@ -82,15 +82,15 @@ function createRouter({ express, verifyAuth, llm }) {
   router.post('/summary', verifyAuth, json, async (req, res) => {
     try {
       const calls = (Array.isArray((req.body || {}).calls) ? req.body.calls : []).slice(-20);
-      if (!calls.length) return res.json({ text: 'Is dauraan koi call nahi aayi.' });
+      if (!calls.length) return res.json({ text: (req.body && req.body.lang === 'hi') ? 'Is dauraan koi call nahi aayi.' : 'No calls came in during this time.' });
       const lines = calls.map((c, i) => {
         const who = clean(c.name, 60) || clean(c.number, 30) || 'Unknown number';
         const t = (Array.isArray(c.transcript) ? c.transcript : []).map((x) => (x && x.who === 'ava' ? 'Ava: ' : 'Caller: ') + clean(x && x.text, 300)).join(' | ');
-        return (i + 1) + '. ' + who + ' | ' + clean(c.status, 20) + ' | at ' + clean(c.atText || c.at, 40) + ' | ' + (t || '(kuch record nahi hua)');
+        return (i + 1) + '. ' + who + ' | ' + clean(c.status, 20) + ' | at ' + clean(c.atText || c.at, 40) + ' | ' + (t || '(nothing was recorded)');
       }).join('\n');
-      const prompt = 'These calls came while the owner was away' + (req.body.reason ? ' (' + clean(req.body.reason, 80) + ')' : '') + '. Ava answered them. Write a SHORT report in simple Hinglish for the owner: for each call say who called, what they want, and whether it is urgent or needs a call back. If nothing was recorded say so honestly. No made-up details. Max 120 words, plain text, no markdown.\n\n' + lines;
+      const prompt = 'These calls came while the owner was away' + (req.body.reason ? ' (' + clean(req.body.reason, 80) + ')' : '') + '. Ava answered them. Write a SHORT report in ' + ((req.body && req.body.lang === 'hi') ? 'simple Hinglish' : 'simple English') + ' for the owner: for each call say who called, what they want, and whether it is urgent or needs a call back. If nothing was recorded say so honestly. No made-up details. Max 120 words, plain text, no markdown.\n\n' + lines;
       const text = clean(await llm.text(prompt, { system: 'You are Ava, a careful personal assistant. Be accurate and brief.', maxTokens: 500 }), 1500);
-      return res.json({ text: text || 'Summary nahi ban payi — calls ki list app me dekh lo.' });
+      return res.json({ text: text || ((req.body && req.body.lang === 'hi') ? 'Summary nahi ban payi — calls ki list app me dekh lo.' : 'Could not build the summary — see the call list in the app.') });
     } catch (e) { return res.status(500).json({ error: String((e && e.message) || e).slice(0, 160) }); }
   });
 

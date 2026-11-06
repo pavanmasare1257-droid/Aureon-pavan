@@ -81,7 +81,7 @@
       bar.appendChild(btn(a.enabled ? 'Band karo' : 'Chalu karo', async function () { await api('/automations/' + encodeURIComponent(a.id), 'PATCH', { enabled: !a.enabled }); loadAll(); }));
       if (a.trigger.type === 'webhook') bar.appendChild(btn('Naya link', async function () {
         var j = await api('/automations/' + encodeURIComponent(a.id) + '/hook-reset', 'POST');
-        say('au-msg', j.ok ? 'Webhook link (sirf abhi dikhega, copy kar lo):\n' + j.hookUrl : j.error, !j.ok);
+        say('au-msg', j.ok ? UL('Webhook link (shown only now, copy it):\n', 'Webhook link (sirf abhi dikhega, copy kar lo):\n') + j.hookUrl : j.error, !j.ok);
       }));
       bar.appendChild(btn('Delete', async function () { var j = await api('/automations/' + encodeURIComponent(a.id), 'DELETE'); if (j.ok) loadAll(); else say('au-msg', j.error, true); }));
       card.appendChild(bar); box.appendChild(card);
@@ -112,7 +112,7 @@
   async function saveApp() {
     if (needLogin()) return say('ap-msg', 'Pehle sign in karo.', true);
     var extra = null, ex = $('ap-extra').value.trim();
-    if (ex) { try { extra = JSON.parse(ex); } catch (e) { return say('ap-msg', 'Extra headers sahi JSON me likho.', true); } }
+    if (ex) { try { extra = JSON.parse(ex); } catch (e) { return say('ap-msg', UL('Write the extra headers as valid JSON.', 'Extra headers sahi JSON me likho.'), true); } }
     say('ap-msg', 'Connect ho raha hai…');
     var j = await api('/apps', 'POST', { name: $('ap-name').value, kind: preset.kind, url: $('ap-url').value, authType: $('ap-auth').value, headerName: $('ap-hname').value, token: $('ap-token').value, headers: extra });
     if (j.ok) {
@@ -128,7 +128,7 @@
     var j = await api('/automations', 'POST', { name: $('au-name').value, instruction: $('au-text').value, appIds: ids, allowWrite: $('au-write').checked, trigger: { type: type, everyMin: Number($('au-every').value) } });
     if (j.ok) {
       $('au-name').value = ''; $('au-text').value = ''; $('au-form').classList.add('hidden');
-      say('au-msg', j.hookUrl ? 'Ban gayi. Webhook link (sirf abhi dikhega, copy kar lo):\n' + j.hookUrl : 'Ban gayi'); loadAll();
+      say('au-msg', j.hookUrl ? UL('Created. Webhook link (shown only now, copy it):\n', 'Ban gayi. Webhook link (sirf abhi dikhega, copy kar lo):\n') + j.hookUrl : UL('Created', 'Ban gayi')); loadAll();
     } else say('au-msg', j.error, true);
   }
 

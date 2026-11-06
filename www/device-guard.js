@@ -16,7 +16,7 @@
   }
   function levelLine(r) {
     var lv = r.level === 'GOOD' ? 'good' : r.level === 'ATTENTION' ? 'warn' : 'bad';
-    return '<span class="dg-dot dg-' + lv + '"></span><b>Score ' + r.score + '/100 — ' + esc(r.level) + '</b><br>' + r.findings + ' issue(s) mile. Details dekhne ke liye Security dashboard → My Phone kholo.';
+    return '<span class="dg-dot dg-' + lv + '"></span><b>Score ' + r.score + '/100 — ' + esc(r.level) + '</b><br>' + r.findings + UL(' issue(s) found. Open Security dashboard → My Phone for details.', ' issue(s) mile. Details dekhne ke liye Security dashboard → My Phone kholo.');
   }
   function renderLast() {
     var sub = $('sub-phoneguard'), raw = get(LAST), r = null;

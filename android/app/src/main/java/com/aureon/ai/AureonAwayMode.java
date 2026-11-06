@@ -62,7 +62,8 @@ final class AureonAwayMode {
     private static TextToSpeech tts;
     private static boolean ttsReady = false;
     private static SpeechRecognizer rec;
-    private static int savedVol = -1;
+    private static int savedVol = -1, savedCallVol = -1;
+    private static boolean ttsStarted = false;
     private static boolean savedSpeaker = false;
 
     private AureonAwayMode() {}
@@ -78,10 +79,14 @@ final class AureonAwayMode {
         return true;
     }
 
-    static void start(Context c, String backendUrl, String token, String reason, String owner, long untilMs) {
-        sp(c).edit().putBoolean("active", true).putString("backend", backendUrl.replaceAll("/+$", "")).putString("token", token)
+    static void start(Context c, String backendUrl, String token, String reason, String owner, long untilMs, String lang) {
+        sp(c).edit().putString("lang", "hi".equals(lang) ? "hi" : "en").putBoolean("active", true).putString("backend", backendUrl.replaceAll("/+$", "")).putString("token", token)
                 .putString("reason", reason).putString("owner", owner).putLong("until", untilMs).apply();
     }
+
+    /** "en" (default) or "hi" (Hinglish): what Ava says on the call and what the notification says. Set from the app's language toggle. */
+    private static boolean en(Context c) { return !"hi".equals(sp(c).getString("lang", "en")); }
+    private static String L(Context c, String english, String hinglish) { return en(c) ? english : hinglish; }
 
     static void stop(Context c) { sp(c).edit().putBoolean("active", false).putString("token", "").apply(); }
 
@@ -124,7 +129,7 @@ final class AureonAwayMode {
             inSession = true; weAnswered = false; finishing = false; offhookHandled = false;
             sNumber = number == null ? "" : number; sName = name == null ? "" : name;
             sStart = System.currentTimeMillis(); sTranscript = new JSONArray();
-            sTurns = 0; sSilent = 0; sHardErrors = 0;
+            sTurns = 0; sSilent = 0; sHardErrors = 0; ttsStarted = false;
             initTts(app);
             pendingAnswer = new Runnable() { @Override public void run() {
                 pendingAnswer = null;
@@ -143,13 +148,17 @@ final class AureonAwayMode {
             if (offhookHandled) return;   // the static AND the service receiver both report the same OFFHOOK
             offhookHandled = true;
             audioForCall(app, true);
+            MAIN.postDelayed(new Runnable() { @Override public void run() { reassertSpeaker(app); } }, 700);
+            MAIN.postDelayed(new Runnable() { @Override public void run() { reassertSpeaker(app); } }, 1800);
             MAIN.postDelayed(new Runnable() { @Override public void run() {
                 if (!inSession || finishing) return;
                 SharedPreferences p = sp(app);
-                String owner = p.getString("owner", "sir"), reason = p.getString("reason", "abhi busy hain");
-                say(app, "Namaste, main Ava hoon, " + owner + " ki AI assistant. " + owner + " " + reason
-                        + ". Ye baat-cheet record ho rahi hai. Aap apna naam aur message bol dijiye.", "away_say");
-            } }, 900);
+                String owner = p.getString("owner", "sir"), reason = p.getString("reason", L(app, "is busy right now", "abhi busy hain"));
+                say(app, L(app,
+                        "Hello, this is Ava, " + owner + "'s AI assistant. " + owner + " " + reason + ". This conversation is being recorded. Please tell me your name and your message.",
+                        "Namaste, main Ava hoon, " + owner + " ki AI assistant. " + owner + " " + reason + ". Ye baat-cheet record ho rahi hai. Aap apna naam aur message bol dijiye."),
+                        "away_say");
+            } }, 1500);
         } });
     }
 
@@ -196,13 +205,14 @@ final class AureonAwayMode {
                 ttsReady = (status == TextToSpeech.SUCCESS);
                 if (!ttsReady) return;
                 try {
-                    Locale hi = new Locale("hi", "IN");
-                    tts.setLanguage(tts.isLanguageAvailable(hi) >= TextToSpeech.LANG_AVAILABLE ? hi : Locale.getDefault());
-                    tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                    Locale want = en(app) ? new Locale("en", "IN") : new Locale("hi", "IN");
+                    tts.setLanguage(tts.isLanguageAvailable(want) >= TextToSpeech.LANG_AVAILABLE ? want : Locale.getDefault());
+                    // VOICE_COMMUNICATION = the in-call stream. Plain MEDIA is muted or ducked by most phones while a call is active.
+                    tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
                 } catch (Throwable ignored) { }
                 tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                    @Override public void onStart(String id) {}
+                    @Override public void onStart(String id) { ttsStarted = true; }
                     @Override public void onError(String id) { onSpoken(app, id); }
                     @Override public void onDone(String id) { onSpoken(app, id); }
                 });
@@ -227,6 +237,17 @@ final class AureonAwayMode {
 
     private static void stopTtsNow() { try { if (tts != null) tts.stop(); } catch (Throwable ignored) { } }
 
+    private static void routeToSpeaker(AudioManager am) {
+        try { am.setSpeakerphoneOn(true); } catch (Throwable ignored) { }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {   // Android 12+: setSpeakerphoneOn alone is often ignored
+                for (android.media.AudioDeviceInfo d : am.getAvailableCommunicationDevices()) {
+                    if (d.getType() == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) { am.setCommunicationDevice(d); break; }
+                }
+            }
+        } catch (Throwable ignored) { }
+    }
+
     private static void audioForCall(Context app, boolean on) {
         try {
             AudioManager am = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
@@ -235,14 +256,35 @@ final class AureonAwayMode {
                 if (savedVol >= 0) return;
                 savedSpeaker = am.isSpeakerphoneOn();
                 savedVol = am.getStreamVolume(AudioManager.STREAM_MUSIC);
-                am.setSpeakerphoneOn(true);
+                savedCallVol = am.getStreamVolume(AudioManager.STREAM_VOICE_CALL);
+                routeToSpeaker(am);
+                // loud enough for the phone's own microphone to carry Ava's voice to the caller
+                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL), 0);
                 am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.max(savedVol, (int) (am.getStreamMaxVolume(AudioManager.STREAM_MUSIC) * 0.85)), 0);
             } else {
-                am.setSpeakerphoneOn(savedSpeaker);
+                try { am.setSpeakerphoneOn(savedSpeaker); } catch (Throwable ignored) { }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { try { am.clearCommunicationDevice(); } catch (Throwable ignored) { } }
                 if (savedVol >= 0) am.setStreamVolume(AudioManager.STREAM_MUSIC, savedVol, 0);
-                savedVol = -1;
+                if (savedCallVol >= 0) am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, savedCallVol, 0);
+                savedVol = -1; savedCallVol = -1;
             }
         } catch (Throwable ignored) { }
+    }
+
+    /** The phone often resets the route right after the call connects: push it to the speaker again a moment later. */
+    private static void reassertSpeaker(final Context app) {
+        try {
+            AudioManager am = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
+            if (am != null && inSession && weAnswered && !finishing) routeToSpeaker(am);
+        } catch (Throwable ignored) { }
+    }
+
+    private static String diagNow(Context app) {
+        try {
+            AudioManager am = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
+            return "speaker=" + (am != null && am.isSpeakerphoneOn()) + ", tts=" + ttsReady + ", voiceStarted=" + ttsStarted
+                    + (am != null ? ", callVol=" + am.getStreamVolume(AudioManager.STREAM_VOICE_CALL) + "/" + am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL) : "");
+        } catch (Throwable t) { return "diag n/a"; }
     }
 
     // ================= listening =================
@@ -258,7 +300,7 @@ final class AureonAwayMode {
     private static void listen(final Context app) {
         if (!inSession || finishing) return;
         if (ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED || !SpeechRecognizer.isRecognitionAvailable(app)) {
-            goodbye(app, "Maaf kijiye, mujhe aapki awaaz sunai nahi de rahi. Aap SMS bhej dijiye, main sir ko bata dungi.", "noaudio");
+            goodbye(app, L(app, "Sorry, I cannot hear you. Please send an SMS and I will let him know.", "Maaf kijiye, mujhe aapki awaaz sunai nahi de rahi. Aap SMS bhej dijiye, main sir ko bata dungi."), "noaudio");
             return;
         }
         stopRec();
@@ -283,7 +325,7 @@ final class AureonAwayMode {
             });
             Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
+            i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, en(app) ? "en-IN" : "hi-IN");
             i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, app.getPackageName());
             i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
             rec.startListening(i);
@@ -295,8 +337,8 @@ final class AureonAwayMode {
             if (!inSession || finishing) return;
             boolean quiet = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT;
             if (quiet) sSilent++; else sHardErrors++;
-            if (sHardErrors >= 3) { goodbye(app, "Maaf kijiye, mujhe aapki awaaz sunai nahi de rahi. Aap SMS bhej dijiye, main sir ko bata dungi.", "noaudio"); return; }
-            if (sSilent >= 3) { goodbye(app, "Koi awaaz nahi aayi. Main sir ko bata dungi ki aapne call kiya tha. Dhanyavaad.", "silent"); return; }
+            if (sHardErrors >= 3) { goodbye(app, L(app, "Sorry, I cannot hear you. Please send an SMS and I will let him know.", "Maaf kijiye, mujhe aapki awaaz sunai nahi de rahi. Aap SMS bhej dijiye, main sir ko bata dungi."), "noaudio"); return; }
+            if (sSilent >= 3) { goodbye(app, L(app, "I did not hear anything. I will tell him that you called. Thank you.", "Koi awaaz nahi aayi. Main sir ko bata dungi ki aapne call kiya tha. Dhanyavaad."), "silent"); return; }
             MAIN.postDelayed(new Runnable() { @Override public void run() { listen(app); } }, error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ? 900 : 400);
         } });
     }
@@ -363,8 +405,8 @@ final class AureonAwayMode {
             return new String[]{reply, j.optBoolean("end", false) ? "1" : "0"};
         } catch (Throwable t) {
             return sTurns <= 1
-                    ? new String[]{"Theek hai. Aap apna naam aur zaroori message bata dijiye, main sir ko bata dungi.", "0"}
-                    : new String[]{"Samajh gayi, main sir ko bata dungi. Dhanyavaad.", "1"};
+                    ? new String[]{L(app, "Okay. Please tell me your name and your message and I will pass it on.", "Theek hai. Aap apna naam aur zaroori message bata dijiye, main sir ko bata dungi."), "0"}
+                    : new String[]{L(app, "Understood, I will tell him. Thank you.", "Samajh gayi, main sir ko bata dungi. Dhanyavaad."), "1"};
         } finally { if (c != null) c.disconnect(); }
     }
 
@@ -377,8 +419,10 @@ final class AureonAwayMode {
         String status = forcedStatus != null ? forcedStatus
                 : (!weAnswered ? "missed" : (finishingTag != null && !hadCaller ? finishingTag : "answered"));
         long now = System.currentTimeMillis();
+        final String diag = diagNow(app);
         try {
             JSONObject e = new JSONObject();
+            e.put("diag", diag);
             e.put("number", sNumber); e.put("name", sName); e.put("at", sStart);
             e.put("atText", new SimpleDateFormat("d MMM, h:mm a", Locale.getDefault()).format(new Date(sStart)));
             e.put("durationSec", (now - sStart) / 1000); e.put("status", status);
@@ -401,11 +445,13 @@ final class AureonAwayMode {
             JSONArray t = e.optJSONArray("transcript");
             for (int i = 0; t != null && i < t.length(); i++) { JSONObject x = t.getJSONObject(i); if ("caller".equals(x.optString("who"))) { first = x.optString("text"); break; } }
             String st = e.optString("status");
-            String text = hadCaller ? first : ("missed".equals(st) ? "Call miss ho gayi (Ava utha nahi payi)" : ("noanswerperm".equals(st) ? "Ava call utha nahi payi (permission)" : "Caller ki awaaz capture nahi hui"));
+            String text = hadCaller ? first : ("missed".equals(st) ? L(app, "Call was missed (Ava could not pick up)", "Call miss ho gayi (Ava utha nahi payi)")
+                    : ("noanswerperm".equals(st) ? L(app, "Ava could not answer (permission missing)", "Ava call utha nahi payi (permission)")
+                    : L(app, "The caller's voice was not captured", "Caller ki awaaz capture nahi hui")));
             Intent open = app.getPackageManager().getLaunchIntentForPackage(app.getPackageName());
             PendingIntent pi = open == null ? null : PendingIntent.getActivity(app, 7, open, PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
             NotificationCompat.Builder b = new NotificationCompat.Builder(app, CHANNEL).setSmallIcon(android.R.drawable.sym_call_incoming)
-                    .setContentTitle("Away mode: " + who + " ne call kiya").setContentText(text)
+                    .setContentTitle(L(app, "Away mode: call from " + who, "Away mode: " + who + " ne call kiya")).setContentText(text)
                     .setStyle(new NotificationCompat.BigTextStyle().bigText(text)).setAutoCancel(true);
             if (pi != null) b.setContentIntent(pi);
             nm.notify((int) (System.currentTimeMillis() % 100000) + 500, b.build());

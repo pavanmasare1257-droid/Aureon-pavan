@@ -2,6 +2,9 @@
 // Talks to your own backend (see /backend). No API keys live in this app.
 // Auth + data storage handled by Firebase (see firebase-config.js).
 
+// Built-in messages follow Settings > English interface (default English). UL(english, hinglish).
+function UL(en, hi) { try { return localStorage.getItem('aureon_ui_en') !== '0' ? en : hi; } catch (e) { return en; } }
+
 const state = {
   // Fixed backend — no longer user-editable, so it can never get cleared or mistyped.
   backendUrl: 'https://aureone.onrender.com',
@@ -998,7 +1001,7 @@ async function callBackend(messages, model, tools) {
   } catch (e) {
     if (e && e.name === 'AbortError') throw e;
     const mb = (_payload.length / 1048576).toFixed(1);
-    throw new Error(`${e.message || 'Failed to fetch'} — request ${mb} MB${navigator.onLine === false ? ', phone offline hai' : ''}${_payload.length > 12 * 1048576 ? ' (bahut bada: purani photos/files hata ke naya chat try karo)' : ''}. Backend check: ${state.backendUrl.replace(/\/$/, '')}/health`);
+    throw new Error(`${e.message || 'Failed to fetch'} — request ${mb} MB${navigator.onLine === false ? UL(', phone is offline', ', phone offline hai') : ''}${_payload.length > 12 * 1048576 ? UL(' (too big: remove old photos/files and try a new chat)', ' (bahut bada: purani photos/files hata ke naya chat try karo)') : ''}. Backend check: ${state.backendUrl.replace(/\/$/, '')}/health`);
   }
   if (!res.ok) {
     let detail = '';
@@ -1264,9 +1267,9 @@ function describeAgentAction(name, args, result) {
     case 'send_instagram_message': return `Sent Instagram DM to ${args.contact_name}`;
     case 'read_instagram_message': return `Checked Instagram chat with ${args.contact_name}`;
     case 'send_whatsapp_live_location': return `Shared live location with ${args.contact_name} via WhatsApp`;
-    case 'fill_application_form': return result.loginRequired ? `Ye login page hai — pehle khud login karo, phir "form bhar do" bolo` : `${result.filled} field${result.filled === 1 ? '' : 's'} bhare${result.skipped && result.skipped.length ? `, ${result.skipped.length} tumhare liye chhode` : ''} — review karke Apply/Submit khud dabana`;
-    case 'start_job_applications': if (result.auto) return result.paused ? `Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki` : `Auto-apply poora: ${result.appliedCount} apply hui`; return `${result.total} job${result.total === 1 ? '' : 's'} mili — #1 khula hai: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
-    case 'next_job_application': if (result.auto) return result.paused ? `Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki` : `Auto-apply poora: ${result.appliedCount} apply hui`; return result.done ? `Saari jobs ho gayi` : `Job ${result.position}: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`;
+    case 'fill_application_form': return result.loginRequired ? UL(`This is a login page - log in yourself first, then say "fill the form"`, `Ye login page hai — pehle khud login karo, phir "form bhar do" bolo`) : UL(`${result.filled} field${result.filled === 1 ? '' : 's'} filled${result.skipped && result.skipped.length ? `, ${result.skipped.length} left for you` : ''} - review and press Apply/Submit yourself`, `${result.filled} field${result.filled === 1 ? '' : 's'} bhare${result.skipped && result.skipped.length ? `, ${result.skipped.length} tumhare liye chhode` : ''} — review karke Apply/Submit khud dabana`);
+    case 'start_job_applications': if (result.auto) return result.paused ? UL(`Paused (${result.reason}) - ${result.appliedCount} applied so far`, `Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki`) : UL(`Auto-apply complete: ${result.appliedCount} applied`, `Auto-apply poora: ${result.appliedCount} apply hui`); return UL(`${result.total} job${result.total === 1 ? '' : 's'} found - #1 is open: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} fields filled). Review it and press Apply.`, `${result.total} job${result.total === 1 ? '' : 's'} mili — #1 khula hai: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`);
+    case 'next_job_application': if (result.auto) return result.paused ? UL(`Paused (${result.reason}) - ${result.appliedCount} applied so far`, `Ruka hu (${result.reason}) — ${result.appliedCount} apply ho chuki`) : UL(`Auto-apply complete: ${result.appliedCount} applied`, `Auto-apply poora: ${result.appliedCount} apply hui`); return result.done ? UL(`All jobs are done`, `Saari jobs ho gayi`) : UL(`Job ${result.position}: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} fields filled). Review it and press Apply.`, `Job ${result.position}: ${result.current && result.current.title ? result.current.title : ''} (${result.filled} field bhare). Review karke Apply dabao.`);
     case 'job_application_report': return `Applied: ${result.applied.length} · Skipped: ${result.skipped.length} · Baaki: ${result.pending.length}`;
     case 'create_zip': return `Zip ban gayi: ${result.zipped} (${result.fileCount} file${result.fileCount === 1 ? '' : 's'})`;
     default: return 'Done';
@@ -1385,7 +1388,7 @@ async function handleImagePick(files) {
   $('image-preview-bar').classList.remove('hidden');
   let n = 0;
   for (const f of files) {
-    $('attach-name').textContent = `Photos tayyar ho rahi hain… ${++n}/${files.length}`;
+    { const k = ++n; $('attach-name').textContent = UL(`Preparing photos… ${k}/${files.length}`, `Photos tayyar ho rahi hain… ${k}/${files.length}`); }
     try { state.pendingImages.push(await prepareImage(f, spec)); } catch (e) { console.error('photo skipped:', e); }
   }
   state.pendingImage = state.pendingImages[0] || null;
@@ -1763,7 +1766,7 @@ async function sandboxRun(lang, blocks) {
 async function fixRounds({ lang, msgObj, steps, report, redraw, max = 3 }) {
   let answer = String(msgObj.content || ''), rep = report, success = false, line = '';
   for (let round = 1; round <= max && !success && !state.stopAuto; round++) {
-    const live = { icon: 'sparkle', label: 'Fix round ' + round + '/' + max + ': AI sudhaar raha hai…', status: 'ok' };
+    const live = { icon: 'sparkle', label: 'Fix round ' + round + '/' + max + UL(': AI is fixing it…', ': AI sudhaar raha hai…'), status: 'ok' };
     steps.push(live); redraw();
     try {
       const res = await fetch(`${state.backendUrl.replace(/\/$/, '')}/api/code/fix-run`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ lang, answer, report: rep }), signal: autoSignal() });
@@ -1786,11 +1789,11 @@ async function fixRounds({ lang, msgObj, steps, report, redraw, max = 3 }) {
     const m2 = { role: 'assistant', content: answer, steps: [{ icon: 'sparkle', label: 'Sudhaara hua jawab (fix & re-run)', detail: line || '', status: 'ok' }, { icon: 'flask', label: 'Sandbox me tests pass hue', status: 'ok' }] };
     attachSummaryChip(d, m2.steps, m2);
     state.currentMessages.push(m2);
-    steps.push({ icon: 'check', label: 'Sudhaara hua jawab chat me add kar diya', status: 'ok' });
+    steps.push({ icon: 'check', label: UL('Fixed answer added to the chat', 'Sudhaara hua jawab chat me add kar diya'), status: 'ok' });
   } else if (state.stopAuto) {
     steps.push({ icon: 'alert', label: 'Aapne Stop dabaya — fix rounds ruk gaye', status: 'error' });
   } else {
-    steps.push({ icon: 'alert', label: max + ' round me bhi theek nahi hua — error upar dekho', status: 'error' });
+    steps.push({ icon: 'alert', label: max + UL(' rounds did not fix it - see the error above', ' round me bhi theek nahi hua — error upar dekho'), status: 'error' });
   }
   redraw();
   return { success, answer, line };
@@ -1804,7 +1807,7 @@ async function maybeAutoTest(msgDiv, msgObj) {
   const steps = msgObj.steps;
   const redraw = () => { const old = msgDiv.querySelector('.sum-chip'); if (old) old.remove(); attachSummaryChip(msgDiv, steps, msgObj); if (!$('sheet-summary').classList.contains('hidden') && state.summaryOpenFor === msgObj) renderSummaryList(steps); };
   state.autoTesting = true; state.stopAuto = false; state.autoAbort = new AbortController();
-  const marker = { icon: 'terminal', label: 'Auto test: tests chal rahe hain…', status: 'ok' };
+  const marker = { icon: 'terminal', label: UL('Auto test: running the tests…', 'Auto test: tests chal rahe hain…'), status: 'ok' };
   steps.push(marker); redraw();
   try {
     const r = await sandboxRun(pick.lang, pick.blocks);
@@ -1818,7 +1821,7 @@ async function maybeAutoTest(msgDiv, msgObj) {
     }
   } catch (e) {
     if (e && e.name === 'AbortError') { marker.label = 'Auto test: roka gaya'; marker.status = 'error'; }
-    else { marker.label = 'Auto test nahi hua'; marker.status = 'error'; marker.detail = String(e.message || e); }
+    else { marker.label = UL('Auto test did not run', 'Auto test nahi hua'); marker.status = 'error'; marker.detail = String(e.message || e); }
   } finally {
     state.autoTesting = false; state.autoAbort = null; redraw(); saveChatSnapshot();
   }
@@ -1837,7 +1840,7 @@ function openSummary(steps, msgObj) {
     btn.className = 'sum-run';
     btn.innerHTML = ic('play') + '<span>Run in sandbox (' + LN + ')</span>';
     const note = document.createElement('div'); note.className = 'sum-note';
-    note.textContent = 'Nothing runs until you approve. Owner only; temp folder, no API keys, 8s limit.' + (lang === 'py' ? ' Python: file/network/process access is blocked.' : '') + ' (Settings > Auto test & fix: tests ke saath wale jawab khud chal jaate hain.)';
+    note.textContent = 'Nothing runs until you approve. Owner only; temp folder, no API keys, 8s limit.' + (lang === 'py' ? ' Python: file/network/process access is blocked.' : '') + UL(' (Settings > Auto test & fix: answers that come with tests run automatically.)', ' (Settings > Auto test & fix: tests ke saath wale jawab khud chal jaate hain.)');
     const fixBtn = document.createElement('button');
     fixBtn.className = 'sum-run'; fixBtn.style.display = 'none'; fixBtn.style.marginTop = '8px';
     fixBtn.innerHTML = ic('wrench') + '<span>Fix & re-run (max 3 rounds)</span>';
@@ -2301,8 +2304,8 @@ async function startJobApplications(args) {
     };
     saveJobQueue(q0);
     const out0 = isAutoSubmit()
-      ? await runJobQueueAuto(q0, `${q0.jobs.length} link(s) mile (tumhare diye hue).`)
-      : await openCurrentJob(q0, `${q0.jobs.length} link(s) mile (tumhare diye hue).`);
+      ? await runJobQueueAuto(q0, UL(`${q0.jobs.length} link(s) found (the ones you gave).`, `${q0.jobs.length} link(s) mile (tumhare diye hue).`))
+      : await openCurrentJob(q0, UL(`${q0.jobs.length} link(s) found (the ones you gave).`, `${q0.jobs.length} link(s) mile (tumhare diye hue).`));
     out0.requested = pasted.length;
     return out0;
   }
@@ -2313,7 +2316,7 @@ async function startJobApplications(args) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
-  if (!data.jobs || !data.jobs.length) throw new Error('Koi verified job link nahi mila — role ya location badal ke dobara try karo.');
+  if (!data.jobs || !data.jobs.length) throw new Error(UL('No verified job link found - change the role or location and try again.', 'Koi verified job link nahi mila — role ya location badal ke dobara try karo.'));
   const q = { role, startedAt: Date.now(), index: 0, jobs: data.jobs.map(j => ({ ...j, status: 'pending' })) };
   saveJobQueue(q);
   const startMsg = `${q.jobs.length} job${q.jobs.length === 1 ? '' : 's'} mili (maanga tha: ${count}).`;
@@ -2324,7 +2327,7 @@ async function startJobApplications(args) {
 
 async function nextJobApplication(args) {
   const q = loadJobQueue();
-  if (!q || !q.jobs || q.index >= q.jobs.length) throw new Error('Koi active job list nahi hai — pehle "jobs pe apply karo" bolo.');
+  if (!q || !q.jobs || q.index >= q.jobs.length) throw new Error(UL('There is no active job list - first say "apply to jobs".', 'Koi active job list nahi hai — pehle "jobs pe apply karo" bolo.'));
   const cur = q.jobs[q.index];
   cur.status = args && args.status === 'skipped' ? 'skipped' : 'applied';
   if (cur.status === 'applied') cur.appliedAt = Date.now();
@@ -2498,7 +2501,7 @@ function askOwnerCode() {
     wrap.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.6);font:16px/1.5 system-ui,sans-serif';
     wrap.innerHTML = '<div style="width:100%;max-width:360px;background:#131A22;color:#E6EDF3;border:1px solid #263340;border-radius:16px;padding:20px">'
       + '<div style="font-weight:600;margin-bottom:4px">Owner code</div>'
-      + '<div style="color:#9AA7B4;font-size:13px;margin-bottom:12px">Sentinel dashboard kholne ke liye apna owner code daalo.</div>'
+      + '<div style="color:#9AA7B4;font-size:13px;margin-bottom:12px">' + UL('Enter your owner code to open the Sentinel dashboard.', 'Sentinel dashboard kholne ke liye apna owner code daalo.') + '</div>'
       + '<input id="oc-in" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Owner code" style="width:100%;box-sizing:border-box;min-height:44px;padding:10px 14px;background:#0B0F14;color:#E6EDF3;border:1px solid #263340;border-radius:12px;font:inherit">'
       + '<div id="oc-err" style="color:#FF6B6B;font-size:13px;min-height:18px;margin-top:6px"></div>'
       + '<div style="display:flex;gap:8px;margin-top:8px"><button id="oc-no" style="flex:1;min-height:44px;border-radius:12px;border:1px solid #263340;background:transparent;color:#E6EDF3;font:inherit">Cancel</button>'
@@ -2524,7 +2527,7 @@ $('btn-open-sentinel')?.addEventListener('click', async () => {
   if (!code) return; // cancelled
   const url = `${state.backendUrl.replace(/\/$/, '')}/api/sentinel/dashboard?code=${encodeURIComponent(code)}&theme=${encodeURIComponent(localStorage.getItem('aureon_theme') || 'nebula')}`;
   const ok = await openExternalUrl(url);
-  if (!ok) alert('Dashboard khul nahi paya. Browser me ye link khol lo:\n' + state.backendUrl);
+  if (!ok) alert(UL('Could not open the dashboard. Open this link in a browser:\n', 'Dashboard khul nahi paya. Browser me ye link khol lo:\n') + state.backendUrl);
 });
 settingsEl('settings-back')?.addEventListener('click', () => {
   const list = settingsEl('settings-list');

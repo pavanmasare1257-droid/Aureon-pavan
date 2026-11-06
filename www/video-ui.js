@@ -20,7 +20,7 @@
         const start = await fetch(`${base}/api/generate-video`, { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ prompt }) });
         const sd = await start.json();
         if (!start.ok) throw new Error(sd.error || `Server returned ${start.status}`);
-        addMessage('ai', 'Video ban raha hai, 1-3 minute lagte hain…');
+        addMessage('ai', UL('Making the video, it takes 1-3 minutes…', 'Video ban raha hai, 1-3 minute lagte hain…'));
         const t0 = Date.now();
         while (Date.now() - t0 < 9 * 60 * 1000) {
           await new Promise((r) => setTimeout(r, 6000));

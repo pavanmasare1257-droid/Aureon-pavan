@@ -5,6 +5,8 @@
 (function () {
   function plugin() { var C = window.Capacitor; return C && C.Plugins && C.Plugins.AureonActions; }
   function base() { return String((typeof state !== 'undefined' && state.backendUrl) || 'https://aureone.onrender.com').replace(/\/$/, ''); }
+  function isEn() { try { return localStorage.getItem('aureon_ui_en') !== '0'; } catch (e) { return true; } }   // Settings > English interface
+  function E(en, hi) { return isEn() ? en : hi; }
   function say(text) {
     if (typeof addMessage === 'function') addMessage('ai', text);
     if (typeof state !== 'undefined' && state.currentMessages) { state.currentMessages.push({ role: 'assistant', content: text }); if (typeof saveChatSnapshot === 'function') saveChatSnapshot(); }
@@ -17,11 +19,11 @@
     return j;
   }
 
-  var REASON_WORD = /(nahane|nahaane|naha|nahana|bath|so\s?(raha|rahi|rhi|rha|ne)|sone|soya|meeting|drive|gaadi|gadi|bike|khana|khaana|namaz|puja|pooja|padhai|exam|busy|kaam)/i;
-  var EXPLICIT_ON = /(away mode|auto\s*call|call\s*pick|calls?\s*(utha|uthao|pick)|call\s*utha\s*lena)/i;
+  var REASON_WORD = /(nahane|nahaane|naha|nahana|bath|so\s?(raha|rahi|rhi|rha|ne)|sone|soya|meeting|drive|gaadi|gadi|bike|khana|khaana|namaz|puja|pooja|padhai|exam|busy|kaam|shower|nap|sleeping|lunch|dinner|eating|prayer|study)/i;
+  var EXPLICIT_ON = /(away mode|auto\s*call|call\s*pick|calls?\s*(utha|uthao|pick)|call\s*utha\s*lena|(answer|pick\s*up|take)\s+(my\s+)?calls?|auto\s*answer)/i;
   var TIME_RE = /(\d+(?:\.\d+)?)\s*(min|mins|minute|minutes|ghanta|ghante|ghnta|hour|hours|hr|hrs)\b/i;
-  var OFF_RE = /(away\s*(mode)?\s*(off|band|stop)|auto\s*call\s*(off|band|stop)|main\s*aa\s*gaya|mai\s*aa\s*gaya|aa\s*gaya\s*hu|aa\s*gayi\s*hu|call\s*pick\s*(off|band)|away\s*band)/i;
-  var REPORT_RE = /(kisne\s*call|kiska\s*call|kiski\s*call|peeche\s*(kya|call)|away\s*report|calls?\s*ka\s*hisaab|kya\s*hua\s*mere\s*peeche)/i;
+  var OFF_RE = /(away\s*(mode)?\s*(off|band|stop)|auto\s*call\s*(off|band|stop)|main\s*aa\s*gaya|mai\s*aa\s*gaya|aa\s*gaya\s*hu|aa\s*gayi\s*hu|call\s*pick\s*(off|band)|away\s*band|i'?m\s*back|i\s*am\s*back|turn\s*off\s*away|stop\s*away)/i;
+  var REPORT_RE = /(kisne\s*call|kiska\s*call|kiski\s*call|peeche\s*(kya|call)|away\s*report|calls?\s*ka\s*hisaab|kya\s*hua\s*mere\s*peeche|who\s*called|any\s*calls?|missed\s*calls?|call\s*report)/i;
 
   function parseMinutes(t) {
     if (/(aadha|adha|half)\s*(ghanta|ghante|hour)/i.test(t)) return 30;
@@ -30,15 +32,17 @@
     var mins = /^(ghanta|ghante|ghnta|hour|hours|hr|hrs)$/.test(unit) ? n * 60 : n;
     return Math.max(1, Math.min(720, Math.round(mins)));
   }
+  function defReason() { return E('cannot take calls right now', 'abhi call nahi le sakte'); }
+  function busyReason() { return E('is busy right now', 'abhi busy hain'); }
   function reasonOf(t) {
-    if (/nahan|naha|bath/i.test(t)) return 'nahane gaye hain';
-    if (/so\s?(raha|rahi|rhi|rha|ne)|sone|soya/i.test(t)) return 'so rahe hain';
-    if (/meeting/i.test(t)) return 'meeting me hain';
-    if (/drive|gaadi|gadi|bike/i.test(t)) return 'gaadi chala rahe hain';
-    if (/khana|khaana/i.test(t)) return 'khana kha rahe hain';
-    if (/namaz|puja|pooja/i.test(t)) return 'puja me hain';
-    if (/padhai|exam/i.test(t)) return 'padhai me hain';
-    return 'abhi call nahi le sakte';
+    if (/nahan|naha|bath|shower/i.test(t)) return E('is taking a bath', 'nahane gaye hain');
+    if (/so\s?(raha|rahi|rhi|rha|ne)|sone|soya|sleep|nap/i.test(t)) return E('is sleeping', 'so rahe hain');
+    if (/meeting/i.test(t)) return E('is in a meeting', 'meeting me hain');
+    if (/drive|driving|gaadi|gadi|bike/i.test(t)) return E('is driving', 'gaadi chala rahe hain');
+    if (/khana|khaana|lunch|dinner|eating|meal/i.test(t)) return E('is having a meal', 'khana kha rahe hain');
+    if (/namaz|puja|pooja|prayer/i.test(t)) return E('is at prayer', 'puja me hain');
+    if (/padhai|exam|study/i.test(t)) return E('is studying', 'padhai me hain');
+    return defReason();
   }
   function ownerName() {
     var n = (typeof state !== 'undefined' && state.user && (state.user.displayName || '')) || '';
@@ -53,10 +57,10 @@
   /** one place that switches away mode on (used by chat and by the dashboard) */
   async function startAway(o) {
     var P = plugin();
-    if (!P || !P.awayStart) throw new Error('Away mode sirf Aureon APK (phone) me chalta hai, browser me nahi.');
-    var reason = String(o.reason || '').trim() || 'abhi busy hain';
-    var r = await post('/start', { minutes: o.minutes, reason: reason, ownerName: ownerName(), notes: o.notes || '', free: !!o.free });
-    await P.awayStart({ backendUrl: base(), token: r.token, until: r.until, reason: reason, ownerName: ownerName() });
+    if (!P || !P.awayStart) throw new Error(E('Away mode works only in the Aureon APK (on the phone), not in a browser.', 'Away mode sirf Aureon APK (phone) me chalta hai, browser me nahi.'));
+    var reason = String(o.reason || '').trim() || busyReason();
+    var r = await post('/start', { minutes: o.minutes, reason: reason, ownerName: ownerName(), notes: o.notes || '', free: !!o.free, lang: isEn() ? 'en' : 'hi' });
+    await P.awayStart({ backendUrl: base(), token: r.token, until: r.until, reason: reason, ownerName: ownerName(), lang: isEn() ? 'en' : 'hi' });
     return r;
   }
   async function stopAway() {
@@ -67,20 +71,21 @@
 
   async function turnOn(text) {
     var P = plugin();
-    if (!P || !P.awayStart) { say('Away mode sirf Aureon APK (phone) me chalta hai, browser me nahi.'); return; }
+    if (!P || !P.awayStart) { say(E('Away mode works only in the Aureon APK (on the phone), not in a browser.', 'Away mode sirf Aureon APK (phone) me chalta hai, browser me nahi.')); return; }
     var prefs = loadPrefs(), minutes = parseMinutes(text), reason = reasonOf(text);
-    if (reason === 'abhi call nahi le sakte' && prefs.reason) reason = prefs.reason;
+    if (reason === defReason() && prefs.reason) reason = prefs.reason;
     await startAway({ minutes: minutes, reason: reason, notes: prefs.notes, free: prefs.free });
-    say('Theek hai, ' + minutes + ' minute ke liye away mode on. Is dauraan call aayegi to main utha lungi, caller ko bataungi ki main AI assistant hu aur baat record ho rahi hai, phir uski baat sunke jawab dungi' + (prefs.free ? ' (apni taraf se bhi)' : (prefs.notes ? ' (aapke notes ke hisaab se)' : '')) + ' aur sab yaad rakhke aapko batungi.\n\nBand karne ke liye "main aa gaya" likho. Notes aur settings ke liye Settings me "Away mode" kholo.');
+    say(E('Okay, away mode is on for ' + minutes + ' minutes. If a call comes in I will pick it up, tell the caller that I am an AI assistant and that the call is being recorded, listen and reply' + (prefs.free ? ' (on my own as well)' : (prefs.notes ? ' (using your notes)' : '')) + ', remember everything and report back to you.\n\nTo turn it off, write "I am back". For notes and settings open Settings and then "Away mode".',
+      'Theek hai, ' + minutes + ' minute ke liye away mode on. Is dauraan call aayegi to main utha lungi, caller ko bataungi ki main AI assistant hu aur baat record ho rahi hai, phir uski baat sunke jawab dungi' + (prefs.free ? ' (apni taraf se bhi)' : (prefs.notes ? ' (aapke notes ke hisaab se)' : '')) + ' aur sab yaad rakhke aapko batungi.\n\nBand karne ke liye "main aa gaya" likho. Notes aur settings ke liye Settings me "Away mode" kholo.'));
   }
 
   async function report(auto) {
-    var P = plugin(); if (!P || !P.awayStatus) { if (!auto) say('Ye sirf Aureon APK me dikhta hai.'); return false; }
+    var P = plugin(); if (!P || !P.awayStatus) { if (!auto) say(E('This only works in the Aureon APK.', 'Ye sirf Aureon APK me dikhta hai.')); return false; }
     var st = await P.awayStatus(); var calls = (st && st.calls) || [];
     var fresh = calls.filter(function (c) { return !c.reported; });
-    if (!fresh.length) { if (!auto) say(st && st.active ? 'Abhi tak koi call nahi aayi. Away mode chalu hai.' : 'Is dauraan koi call nahi aayi.'); return false; }
-    var j = await post('/summary', { calls: fresh, reason: st.reason || '' });
-    say('Aapke peeche ' + fresh.length + ' call aayi:\n\n' + (j.text || 'Summary nahi ban payi.'));
+    if (!fresh.length) { if (!auto) say(st && st.active ? E('No calls yet. Away mode is on.', 'Abhi tak koi call nahi aayi. Away mode chalu hai.') : E('No calls came in during this time.', 'Is dauraan koi call nahi aayi.')); return false; }
+    var j = await post('/summary', { calls: fresh, reason: st.reason || '', lang: isEn() ? 'en' : 'hi' });
+    say(E(fresh.length + (fresh.length === 1 ? ' call' : ' calls') + ' came in while you were away:\n\n', 'Aapke peeche ' + fresh.length + ' call aayi:\n\n') + (j.text || E('Could not build the summary.', 'Summary nahi ban payi.')));
     await P.awayMarkReported();
     return true;
   }
@@ -90,7 +95,7 @@
     text = String(text || '').trim();
     if (!text || text.length > 400 || typeof state === 'undefined' || !state.user) return false;
     var isOff = OFF_RE.test(text);
-    var isOn = !isOff && (EXPLICIT_ON.test(text) || (REASON_WORD.test(text) && TIME_RE.test(text) && /(ja\s?r|jaa\s?r|ja\s?raha|ja\s?rha|jaa\s?rha|hu\b|hoon|hun\b|rahunga|rahunga|lagega)/i.test(text)));
+    var isOn = !isOff && (EXPLICIT_ON.test(text) || (REASON_WORD.test(text) && TIME_RE.test(text) && /(ja\s?r|jaa\s?r|ja\s?raha|ja\s?rha|jaa\s?rha|hu\b|hoon|hun\b|rahunga|lagega|going|gonna|i'?m|i\s*am|will\s*be)/i.test(text)));
     var isRep = !isOff && !isOn && REPORT_RE.test(text);
     if (!isOff && !isOn && !isRep) return false;
     if (isOff) {   // "main aa gaya" is also normal chat: only treat it as OFF when away mode is on or calls are waiting
@@ -105,7 +110,7 @@
         await stopAway();
         busy(false);
         var shown = await report(true);
-        say(shown ? 'Away mode band kar diya.' : 'Away mode band kar diya. Is dauraan koi call nahi aayi.');
+        say(shown ? E('Away mode is off.', 'Away mode band kar diya.') : E('Away mode is off. No calls came in during this time.', 'Away mode band kar diya. Is dauraan koi call nahi aayi.'));
       } else { busy(false); await report(false); }
     } catch (e) {
       if (typeof addMessage === 'function') addMessage('error', 'Away mode: ' + String((e && e.message) || e));
@@ -131,7 +136,7 @@
   function when(ms) { try { return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } }
 
   function openDashboard() {
-    if (typeof state === 'undefined' || !state.user) { say('Pehle sign in karo.'); return; }
+    if (typeof state === 'undefined' || !state.user) { say(E('Please sign in first.', 'Pehle sign in karo.')); return; }
     if (ov) ov.remove();
     ov = el('div', 'position:fixed;inset:0;z-index:99990;background:var(--bg,#0b0b14);color:var(--text,#eee);display:flex;flex-direction:column;padding-top:var(--safe-top,0px);font-family:inherit');
     document.body.appendChild(ov); render();
@@ -146,48 +151,48 @@
     var prefs = loadPrefs(); ov.textContent = '';
 
     var bar = el('div', 'display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.1)');
-    bar.appendChild(button('Close', closeDashboard)); bar.appendChild(el('b', 'flex:1;font-size:16px', 'Away mode: auto call pickup')); ov.appendChild(bar);
+    bar.appendChild(button(E('Close', 'Close'), closeDashboard)); bar.appendChild(el('b', 'flex:1;font-size:16px', E('Away mode: auto call pickup', 'Away mode: auto call pickup'))); ov.appendChild(bar);
     var body = el('div', 'flex:1;overflow:auto;padding-bottom:60px'); ov.appendChild(body);
 
-    if (!P || !P.awayStart) { body.appendChild(el('div', CARD, 'Ye feature sirf Aureon APK (phone) me chalta hai.')); return; }
+    if (!P || !P.awayStart) { body.appendChild(el('div', CARD, E('This feature works only in the Aureon APK (on the phone).', 'Ye feature sirf Aureon APK (phone) me chalta hai.'))); return; }
 
     // status
     var c1 = el('div', CARD), line = el('div', 'font-size:16px;font-weight:600');
     var sub = el('div', 'font-size:13px;opacity:.75;margin-top:4px;line-height:1.5');
     function paintStatus() {
       var left = Math.max(0, Math.round((st.until - Date.now()) / 60000));
-      if (st.active && st.until > Date.now()) { line.textContent = 'Chalu hai (' + left + ' min baaki, ' + when(st.until) + ' tak)'; line.style.color = '#7ee2a8'; sub.textContent = 'Call aane par Ava utha legi, caller se baat karegi aur aapko baad me batayegi.'; }
-      else { line.textContent = 'Band hai'; line.style.color = ''; sub.textContent = 'Neeche settings bharo aur "Shuru karo" dabao.'; }
+      if (st.active && st.until > Date.now()) { line.textContent = E('On (' + left + ' min left, until ' + when(st.until) + ')', 'Chalu hai (' + left + ' min baaki, ' + when(st.until) + ' tak)'); line.style.color = '#7ee2a8'; sub.textContent = E('When a call comes in Ava will pick up, talk to the caller and report to you later.', 'Call aane par Ava utha legi, caller se baat karegi aur aapko baad me batayegi.'); }
+      else { line.textContent = E('Off', 'Band hai'); line.style.color = ''; sub.textContent = E('Fill in the settings below and press "Start".', 'Neeche settings bharo aur "Shuru karo" dabao.'); }
     }
     paintStatus(); tick = setInterval(paintStatus, 20000);
     c1.appendChild(line); c1.appendChild(sub); body.appendChild(c1);
 
     // settings
     var c2 = el('div', CARD);
-    c2.appendChild(el('div', 'font-size:13px;opacity:.8;margin-bottom:4px', 'Kitni der (minute)'));
+    c2.appendChild(el('div', 'font-size:13px;opacity:.8;margin-bottom:4px', E('How long (minutes)', 'Kitni der (minute)')));
     var mins = el('input', FIELD); mins.type = 'number'; mins.min = '1'; mins.max = '720'; mins.value = String(prefs.minutes); c2.appendChild(mins);
     c2.appendChild(chips(['15', '30', '60', '120'], function (t) { mins.value = t; }));
-    c2.appendChild(el('div', 'font-size:13px;opacity:.8;margin:12px 0 4px', 'Ava caller ko kya bataye (aap abhi kya kar rahe ho)'));
-    var reason = el('input', FIELD); reason.value = prefs.reason; reason.placeholder = 'jaise: nahane gaye hain'; c2.appendChild(reason);
-    c2.appendChild(chips(['nahane gaye hain', 'meeting me hain', 'gaadi chala rahe hain', 'so rahe hain', 'abhi busy hain'], function (t) { reason.value = t; }));
-    c2.appendChild(el('div', 'font-size:13px;opacity:.8;margin:12px 0 4px', 'Notes: Ava inhi se jawab degi'));
+    c2.appendChild(el('div', 'font-size:13px;opacity:.8;margin:12px 0 4px', E('What should Ava tell the caller (what you are doing now)', 'Ava caller ko kya bataye (aap abhi kya kar rahe ho)')));
+    var reason = el('input', FIELD); reason.value = prefs.reason; reason.placeholder = E('for example: is taking a bath', 'jaise: nahane gaye hain'); c2.appendChild(reason);
+    c2.appendChild(chips(isEn() ? ['is taking a bath', 'is in a meeting', 'is driving', 'is sleeping', 'is busy right now'] : ['nahane gaye hain', 'meeting me hain', 'gaadi chala rahe hain', 'so rahe hain', 'abhi busy hain'], function (t) { reason.value = t; }));
+    c2.appendChild(el('div', 'font-size:13px;opacity:.8;margin:12px 0 4px', E('Notes: Ava answers from these', 'Notes: Ava inhi se jawab degi')));
     var notes = el('textarea', FIELD + ';min-height:130px;resize:vertical'); notes.value = prefs.notes;
-    notes.placeholder = 'Jaise:\nSir 7 baje tak free honge.\nDelivery wale parcel gate pe rakh dein.\nOffice ka kaam ho to email bhej dein.\nPaise ya OTP ki baat ho to sir khud call karenge.';
+    notes.placeholder = E('For example:\nSir will be free after 7 pm.\nDelivery people can leave the parcel at the gate.\nFor office work please send an email.\nFor anything about money or OTP, sir will call back himself.', 'Jaise:\nSir 7 baje tak free honge.\nDelivery wale parcel gate pe rakh dein.\nOffice ka kaam ho to email bhej dein.\nPaise ya OTP ki baat ho to sir khud call karenge.');
     c2.appendChild(notes);
-    c2.appendChild(el('div', 'font-size:12px;opacity:.65;margin-top:6px;line-height:1.5', 'Notes me jo likha hai Ava wahi caller ko batayegi. Aapke baare me jo notes me nahi hai uska andaza nahi lagayegi, bolegi ki sir ko bata dungi. OTP, bank ya paise ki baat kabhi nahi manegi.'));
+    c2.appendChild(el('div', 'font-size:12px;opacity:.65;margin-top:6px;line-height:1.5', E('Ava tells callers only what is written in the notes. For anything about you that is not in the notes she will not guess, she will say she will pass it on. She never agrees to OTP, bank or money requests.', 'Notes me jo likha hai Ava wahi caller ko batayegi. Aapke baare me jo notes me nahi hai uska andaza nahi lagayegi, bolegi ki sir ko bata dungi. OTP, bank ya paise ki baat kabhi nahi manegi.')));
     var freeRow = el('label', 'display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:14px;line-height:1.45;cursor:pointer');
     var free = el('input', 'margin-top:3px;width:20px;height:20px;flex:none'); free.type = 'checkbox'; free.checked = !!prefs.free;
-    freeRow.appendChild(free); freeRow.appendChild(el('span', null, 'Ava apni taraf se bhi jawab de (notes ke bahar ke sawal par bhi, jaise general sawal ya baat-cheet). Band rakhoge to sirf notes se jawab degi.'));
+    freeRow.appendChild(free); freeRow.appendChild(el('span', null, E('Let Ava also answer on her own (questions outside the notes, like general questions or small talk). If this is off she answers only from the notes.', 'Ava apni taraf se bhi jawab de (notes ke bahar ke sawal par bhi, jaise general sawal ya baat-cheet). Band rakhoge to sirf notes se jawab degi.')));
     c2.appendChild(freeRow);
     var msg = el('div', 'font-size:13px;min-height:18px;margin-top:8px');
     function readForm() { var m = Math.max(1, Math.min(720, parseInt(mins.value, 10) || 30)); return { minutes: m, reason: reason.value.trim(), notes: notes.value.trim().slice(0, 3000), free: !!free.checked }; }
     var row = el('div', 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px');
-    row.appendChild(button('Settings save karo', function () { savePrefs(readForm()); msg.style.color = '#7ee2a8'; msg.textContent = 'Save ho gaya.'; }));
+    row.appendChild(button(E('Save settings', 'Settings save karo'), function () { savePrefs(readForm()); msg.style.color = '#7ee2a8'; msg.textContent = E('Saved.', 'Save ho gaya.'); }));
     if (st.active && st.until > Date.now()) {
-      row.appendChild(button('Band karo', async function (b) { b.disabled = true; try { await stopAway(); } catch (e) { /* ignore */ } render(); }, true));
+      row.appendChild(button(E('Turn off', 'Band karo'), async function (b) { b.disabled = true; try { await stopAway(); } catch (e) { /* ignore */ } render(); }, true));
     } else {
-      row.appendChild(button('Shuru karo', async function (b) {
-        var f = readForm(); savePrefs(f); b.disabled = true; msg.style.color = ''; msg.textContent = 'Shuru ho raha hai...';
+      row.appendChild(button(E('Start', 'Shuru karo'), async function (b) {
+        var f = readForm(); savePrefs(f); b.disabled = true; msg.style.color = ''; msg.textContent = E('Starting...', 'Shuru ho raha hai...');
         try { await startAway(f); render(); } catch (e) { b.disabled = false; msg.style.color = '#ff8a8a'; msg.textContent = 'Error: ' + String((e && e.message) || e); }
       }, true));
     }
@@ -196,28 +201,29 @@
     // calls
     var c3 = el('div', CARD), calls = (st.calls || []).slice().reverse();
     var head = el('div', 'display:flex;align-items:center;gap:8px;margin-bottom:8px');
-    head.appendChild(el('b', 'flex:1', 'Aayi hui calls (' + calls.length + ')'));
+    head.appendChild(el('b', 'flex:1', E('Calls received (' + calls.length + ')', 'Aayi hui calls (' + calls.length + ')')));
     var sumBox = el('div', 'font-size:14px;line-height:1.55;white-space:pre-wrap;margin-bottom:8px;display:none');
-    if (calls.length) head.appendChild(button('Summary banao', async function (b) {
-      b.disabled = true; sumBox.style.display = 'block'; sumBox.textContent = 'Ho raha hai...';
-      try { var j = await post('/summary', { calls: calls.slice().reverse().slice(-20), reason: st.reason || '' }); sumBox.textContent = j.text || 'Summary nahi ban payi.'; if (P.awayMarkReported) await P.awayMarkReported(); }
+    if (calls.length) head.appendChild(button(E('Make summary', 'Summary banao'), async function (b) {
+      b.disabled = true; sumBox.style.display = 'block'; sumBox.textContent = E('Working...', 'Ho raha hai...');
+      try { var j = await post('/summary', { calls: calls.slice().reverse().slice(-20), reason: st.reason || '', lang: isEn() ? 'en' : 'hi' }); sumBox.textContent = j.text || E('Could not build the summary.', 'Summary nahi ban payi.'); if (P.awayMarkReported) await P.awayMarkReported(); }
       catch (e) { sumBox.textContent = 'Error: ' + String((e && e.message) || e); }
       b.disabled = false;
     }));
     c3.appendChild(head); c3.appendChild(sumBox);
-    if (!calls.length) c3.appendChild(el('div', 'opacity:.7;font-size:13px', 'Abhi tak koi call nahi aayi.'));
+    if (!calls.length) c3.appendChild(el('div', 'opacity:.7;font-size:13px', E('No calls yet.', 'Abhi tak koi call nahi aayi.')));
     calls.forEach(function (c) {
       var item = el('div', 'border-top:1px solid rgba(255,255,255,.1);padding:8px 0');
       var who = c.name || c.number || 'Unknown number';
       var firstCaller = ''; (c.transcript || []).some(function (x) { if (x.who === 'caller') { firstCaller = x.text; return true; } return false; });
-      var stText = { answered: 'Ava ne baat ki', missed: 'Miss ho gayi', noaudio: 'Awaaz capture nahi hui', silent: 'Caller chup raha', noanswerperm: 'Ava utha nahi payi (permission)' }[c.status] || c.status;
+      var stText = (isEn() ? { answered: 'Ava talked to the caller', missed: 'Missed', noaudio: 'Caller voice was not captured', silent: 'Caller stayed silent', noanswerperm: 'Ava could not answer (permission)' } : { answered: 'Ava ne baat ki', missed: 'Miss ho gayi', noaudio: 'Awaaz capture nahi hui', silent: 'Caller chup raha', noanswerperm: 'Ava utha nahi payi (permission)' })[c.status] || c.status;
       item.appendChild(el('div', 'font-weight:600;font-size:14px', who + '  ·  ' + (c.atText || '')));
       item.appendChild(el('div', 'font-size:12px;opacity:.7;margin:2px 0', stText + (c.durationSec ? ' · ' + c.durationSec + ' sec' : '')));
       if (firstCaller) item.appendChild(el('div', 'font-size:13px;opacity:.9', '"' + firstCaller + '"'));
       var full = el('div', 'display:none;font-size:13px;line-height:1.5;margin-top:6px;padding:8px;border-radius:8px;background:rgba(255,255,255,.05);white-space:pre-wrap');
-      full.textContent = (c.transcript || []).filter(function (x) { return x.who !== 'sys'; }).map(function (x) { return (x.who === 'ava' ? 'Ava: ' : 'Caller: ') + x.text; }).join('\n') || '(kuch record nahi hua)';
-      var tg = el('div', 'font-size:12px;color:#8ab4ff;margin-top:4px;cursor:pointer', 'Poori baat dekho');
-      tg.addEventListener('click', function () { var show = full.style.display === 'none'; full.style.display = show ? 'block' : 'none'; tg.textContent = show ? 'Chhupao' : 'Poori baat dekho'; });
+      full.textContent = (c.transcript || []).filter(function (x) { return x.who !== 'sys'; }).map(function (x) { return (x.who === 'ava' ? 'Ava: ' : 'Caller: ') + x.text; }).join('\n') || E('(nothing was recorded)', '(kuch record nahi hua)');
+      if (c.diag) full.textContent += '\n\nDebug: ' + c.diag;
+      var tg = el('div', 'font-size:12px;color:#8ab4ff;margin-top:4px;cursor:pointer', E('See the full conversation', 'Poori baat dekho'));
+      tg.addEventListener('click', function () { var show = full.style.display === 'none'; full.style.display = show ? 'block' : 'none'; tg.textContent = show ? E('Hide', 'Chhupao') : E('See the full conversation', 'Poori baat dekho'); });
       item.appendChild(tg); item.appendChild(full); c3.appendChild(item);
     });
     body.appendChild(c3);

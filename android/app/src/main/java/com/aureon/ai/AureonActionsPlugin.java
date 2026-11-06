@@ -122,7 +122,7 @@ public class AureonActionsPlugin extends Plugin {
         if (url == null || token == null || !url.startsWith("http")) { call.reject("backendUrl and token are required"); return; }
         long until = call.getData().optLong("until", 0);
         if (until <= System.currentTimeMillis()) until = System.currentTimeMillis() + 30L * 60000L;
-        AureonAwayMode.start(getContext(), url, token, call.getString("reason", "abhi busy hain"), call.getString("ownerName", "sir"), until);
+        AureonAwayMode.start(getContext(), url, token, call.getString("reason", "is busy right now"), call.getString("ownerName", "sir"), until, call.getString("lang", "en"));
         call.resolve(awayState());
     }
 

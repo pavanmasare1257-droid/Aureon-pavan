@@ -448,29 +448,56 @@ module.exports = function createAvaSelf({ lib, auth, store, DATA_DIR, callLLM, l
     res.json({ ok: true });
   });
 
+  /** Re-apply the changed part of a proposal (oldC -> newC) onto a file that has drifted (cur). Returns the new text or null. */
+  function rebaseProposal(oldC, newC, cur) {
+    oldC = String(oldC || ''); newC = String(newC || ''); cur = String(cur || '');
+    if (!oldC || !newC || !cur) return null;
+    let pre = 0; const max = Math.min(oldC.length, newC.length);
+    while (pre < max && oldC.charCodeAt(pre) === newC.charCodeAt(pre)) pre++;
+    let suf = 0;
+    while (suf < max - pre && oldC.charCodeAt(oldC.length - 1 - suf) === newC.charCodeAt(newC.length - 1 - suf)) suf++;
+    const oldMid = oldC.slice(pre, oldC.length - suf), newMid = newC.slice(pre, newC.length - suf);
+    if (oldMid === newMid) return null;
+    for (const n of [160, 80, 40, 20]) {            // a bit of surrounding text makes the spot unique; shrink it if the file drifted nearby
+      const a = oldC.slice(Math.max(0, pre - n), pre), b = oldC.slice(oldC.length - suf, oldC.length - suf + n);
+      const find = a + oldMid + b, at = cur.indexOf(find);
+      if (at < 0) continue;
+      if (cur.indexOf(find, at + 1) >= 0) continue;   // more than one place: not safe
+      return cur.slice(0, at) + a + newMid + b + cur.slice(at + find.length);
+    }
+    return null;
+  }
+
   function applyProposal(p, isAuto) {
     if (!EDITABLE.includes(p.file) || !fs.existsSync(abs(p.file))) return { code: 400, error: 'file allowed nahi / mili nahi' };
     const cur = read(p.file);
-    if (cur !== p.oldContent) return { code: 409, error: 'File proposal ke baad badal chuki hai — reject karke Ava se dobara likhwao.' };
-    const bad = lib.validateNew(p.file, cur, p.newContent);
+    let oldRef = p.oldContent, newContent = p.newContent;
+    if (cur !== p.oldContent) {
+      // The file on the server is not the one the proposal was written against (a redeploy resets Ava's earlier edits, or another
+      // proposal went in first). Re-apply just the changed part onto the CURRENT file when it still fits in exactly one place.
+      const rb = rebaseProposal(p.oldContent, p.newContent, cur);
+      if (rb == null) return { code: 409, error: 'The file changed after this proposal and the change no longer fits — reject it and ask Ava to write it again.' };
+      newContent = rb; oldRef = cur;
+    }
+    const bad = lib.validateNew(p.file, cur, newContent);
     if (bad) return { code: 400, error: bad };
-    const sb = sandbox(p.file, p.newContent);
+    const sb = sandbox(p.file, newContent);
     if (!sb.ok) return { code: 400, error: 'sandbox test fail: ' + sb.log };
     const backups = {}; const wrote = [];
     const targets = [p.file]; const m = MIRRORS[p.file];
-    if (m && fs.existsSync(abs(m)) && read(m) === p.oldContent) targets.push(m); // keep the two widget copies in sync
+    if (m && fs.existsSync(abs(m)) && read(m) === oldRef) targets.push(m); // keep the two widget copies in sync
     try {
       for (const t of targets) {
         backups[t] = read(t);
         try { fs.writeFileSync(path.join(BK_DIR, p.id + '__' + t.replace(/\//g, '_')), backups[t]); } catch (e) { /* history keeps it */ }
-        fs.writeFileSync(abs(t), p.newContent, 'utf8');
-        if (read(t) !== p.newContent) { for (const w of wrote.concat([t])) fs.writeFileSync(abs(w), backups[w], 'utf8'); throw new Error('write verify fail — rollback kiya'); }
+        fs.writeFileSync(abs(t), newContent, 'utf8');
+        if (read(t) !== newContent) { for (const w of wrote.concat([t])) fs.writeFileSync(abs(w), backups[w], 'utf8'); throw new Error('write verify fail — rollback kiya'); }
         wrote.push(t);
       }
     } catch (e) { return { code: 500, error: e.message }; }
     p.status = 'approved'; p.decidedAt = new Date().toISOString();
     state.version = (state.version || 0) + 1;
-    const entry = { id: nid(), proposalId: p.id, version: state.version, auto: !!isAuto, at: p.decidedAt, status: 'applied', file: p.file, files: wrote, title: p.title, what: p.what, why: p.why, risk: p.risk, test: p.test, sandbox: p.sandbox, stats: p.stats, diff: p.diff, backups, newContents: Object.fromEntries(wrote.map((t) => [t, p.newContent])), newHash: crypto.createHash('sha256').update(p.newContent).digest('hex') };
+    const entry = { id: nid(), proposalId: p.id, version: state.version, auto: !!isAuto, at: p.decidedAt, status: 'applied', file: p.file, files: wrote, title: p.title, what: p.what, why: p.why, risk: p.risk, test: p.test, sandbox: p.sandbox, stats: p.stats, diff: p.diff, backups, newContents: Object.fromEntries(wrote.map((t) => [t, newContent])), newHash: crypto.createHash('sha256').update(newContent).digest('hex') };
     state.history.unshift(entry); if (state.history.length > HISTORY_MAX) state.history.length = HISTORY_MAX;
     save();
     if (logEvent) logEvent('approved', { name: 'Ava' }, 'Ava v' + entry.version + (isAuto ? ' (auto)' : '') + ': ' + p.title);
