@@ -1,0 +1,38 @@
+# Wakes your Render server and runs the Twin scheduler (recurring targets + dead-man switch).
+# Needed because Render's free plan goes to sleep, and a sleeping server cannot run anything.
+#
+# Setup (GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret):
+#   TWIN_TICK_SECRET : the SAME random string you put in Render's env var TWIN_TICK_SECRET
+#   TWIN_BASE_URL    : https://aureone.onrender.com
+#
+# Timing: GitHub runs "scheduled" workflows on a best-effort basis (often a few minutes late), and
+# switches them off after 60 days without any repo activity on public repos (push something, or re-enable it in the Actions tab).
+# Cost: free for public repos. PRIVATE repos get 2000 free minutes/month; every run bills at least 1 minute,
+# so every 30 minutes = ~1440 min/month (OK). Do NOT lower this to */10 on a private repo.
+name: twin-tick
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping the twin scheduler
+        env:
+          TWIN_TICK_SECRET: ${{ secrets.TWIN_TICK_SECRET }}
+          TWIN_BASE_URL: ${{ secrets.TWIN_BASE_URL }}
+        run: |
+          if [ -z "$TWIN_TICK_SECRET" ] || [ -z "$TWIN_BASE_URL" ]; then
+            echo "Secrets TWIN_TICK_SECRET and TWIN_BASE_URL are not set." >&2
+            exit 1
+          fi
+          # Render free tier can need ~60 s to wake up, so allow a long timeout and a few retries.
+          curl -fsS --max-time 120 --retry 3 --retry-delay 20 --retry-all-errors \
+            -X POST -H "x-tick-secret: ${TWIN_TICK_SECRET}" \
+            "${TWIN_BASE_URL%/}/api/twin/tick"
+          echo

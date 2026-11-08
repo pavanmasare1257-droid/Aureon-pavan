@@ -1,0 +1,30 @@
+# Runs the Twin tests on every push. This also creates the GitHub "check-run" that the deploy
+# preflight reads: Auto-deploy only fires when the latest commit's checks are green.
+name: twin-ci
+on:
+  push:
+    paths:
+      - 'backend/twin/**'
+      - 'backend/test/**'
+      - '.github/workflows/twin-ci.yml'
+  pull_request:
+    paths:
+      - 'backend/twin/**'
+      - 'backend/test/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run twin tests (no dependencies to install)
+        working-directory: backend
+        run: node --test test/twin.test.js test/handlers.test.js

@@ -90,6 +90,50 @@ app.use('/api/skills', skills.createRouter({ express, verifyAuth, getDb: () => d
 app.use('/api/docs', require('./docs-studio').createRouter({ express, verifyAuth, llm: require('./llm-text') }));
 // Away mode (v41): Ava answers calls while the owner is busy; the phone handles the call, this only writes Ava's next sentence + the summary.
 app.use('/api/away', require('./away-call').createRouter({ express, verifyAuth, llm: require('./llm-text') }));
+
+// Digital Twin (v46): approval queue, autonomy levels, dead-man switch, recurring targets. Routes live under /api/twin/*.
+// With no extra env vars everything is in safe mode (payments simulated, deploy off). See README-TWIN.md.
+try {
+  const { createTwin } = require('./twin');
+  const { firestoreStore } = require('./twin/firestore-store');
+  const { fileStore } = require('./twin/store');
+  const { mount: mountTwin } = require('./twin/routes');
+  // Reuse the Resend setup the Sentinel alerts already use, so no new email account is needed.
+  const twinEnv = { ...process.env };
+  if (!twinEnv.EMAIL_PROVIDER && twinEnv.RESEND_API_KEY && twinEnv.ALERT_EMAIL_FROM) {
+    const m = /^(.*?)\s*<([^>]+)>\s*$/.exec(String(twinEnv.ALERT_EMAIL_FROM));
+    twinEnv.EMAIL_PROVIDER = 'resend';
+    twinEnv.EMAIL_FROM = (m ? m[2] : String(twinEnv.ALERT_EMAIL_FROM)).trim();
+    twinEnv.EMAIL_FROM_NAME = (m && m[1]) ? m[1].trim() : 'Aureon';
+  }
+  if (!twinEnv.OWNER_EMAIL && twinEnv.ALERT_EMAIL_TO) twinEnv.OWNER_EMAIL = String(twinEnv.ALERT_EMAIL_TO).split(',')[0].trim();
+  const lastMail = new Map();   // uid|kind -> time: at most one owner email per kind every 15 minutes
+  let twinRef = null;
+  const twin = createTwin({
+    store: db ? firestoreStore(db) : fileStore(path.join(__dirname, 'twin-data')),   // Render's disk is wiped on redeploy, so Firestore whenever it is available
+    env: twinEnv,
+    notify: async (uid, payload) => {
+      if (db) { try { await db.collection('users').doc(uid).collection('notifications').add({ ...payload, at: Date.now(), read: false }); } catch (e) { /* notifications are best effort */ } }
+      const important = payload && (payload.kind === 'approval_needed' || payload.kind === 'continuity');
+      const mailer = twinRef && twinRef.mailer;
+      if (important && mailer && mailer.configured && twinRef.ownerEmail) {
+        const k = uid + '|' + payload.kind, t = Date.now();
+        if (t - (lastMail.get(k) || 0) > 15 * 60 * 1000) {
+          lastMail.set(k, t);
+          mailer.send({ to: twinRef.ownerEmail, subject: payload.kind === 'continuity' ? 'Aureon: dead-man switch notice' : 'Aureon: approval needed', text: String(payload.text || payload.summary || 'Open Aureon > Settings > Digital Twin.').slice(0, 500) }).catch(() => {});
+        }
+      }
+    },
+  });
+  twinRef = twin;
+  // The twin expects req.uid; Aureon's verifyAuth sets req.verifiedUid (the uid always comes from the verified token, never from the body).
+  const twinAuth = (req, res, next) => verifyAuth(req, res, () => { req.uid = req.verifiedUid; next(); });
+  const twinRouter = express.Router();
+  mountTwin(twinRouter, twin, twinAuth);
+  app.use('/api', twinRouter);
+  twin.start();
+  console.log('[twin] ready: payments=' + twin.info.payments + ', email=' + twin.info.email + ', deploy targets=' + twin.info.deployTargets.length);
+} catch (e) { console.error('[twin] not started:', e && e.message); }
 // Apps & Automation (v29): connect any MCP / REST / webhook app and let Aureon automate it. See connect.js.
 const connect = require('./connect');
 const llmText = require('./llm-text');
