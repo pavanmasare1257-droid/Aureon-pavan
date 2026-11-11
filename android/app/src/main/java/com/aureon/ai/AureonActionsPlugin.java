@@ -111,6 +111,20 @@ public class AureonActionsPlugin extends Plugin {
     }
 
     // ---- Teach Ava: record what the user does, replay it on command ----
+    // ---- Caller announcement check (Settings > Away mode > Caller voice check) ----
+    private JSObject callDiagState() {
+        try { return new JSObject(AureonCallAnnouncer.diag(getContext()).toString()); } catch (Exception e) { return new JSObject(); }
+    }
+
+    @PluginMethod
+    public void callDiag(PluginCall call) { call.resolve(callDiagState()); }
+
+    @PluginMethod
+    public void callTest(final PluginCall call) {
+        AureonCallAnnouncer.testAnnounce(getContext());
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() { @Override public void run() { call.resolve(callDiagState()); } }, 2600);
+    }
+
     // ---- Away mode (Ava answers calls while the owner is busy) ----
     private JSObject awayState() {
         try { return new JSObject(AureonAwayMode.status(getContext()).toString()); } catch (Exception e) { return new JSObject(); }

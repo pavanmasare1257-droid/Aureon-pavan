@@ -4,6 +4,12 @@ import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.app.NotificationManager;
+import android.content.SharedPreferences;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
+import android.os.Build;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -80,6 +86,7 @@ final class AureonCallAnnouncer {
                         synchronized (MAIN) { pendingGeneric = null; }
                         if (!ringing) return;
                         if (AureonAwayMode.isActive(app)) { AureonAwayMode.onRinging(app, "", ""); return; }
+                        saveDiag(app, false, false, true);
                         announceOnce(app, "generic", "You have an incoming call");
                     }
                 };
@@ -93,6 +100,7 @@ final class AureonCallAnnouncer {
         }
         String digits = number.replaceAll("[^0-9]", "");
         String name = lookupContactName(app, number);
+        saveDiag(app, true, name != null, false);
         if (AureonAwayMode.isActive(app)) { AureonAwayMode.onRinging(app, number, name == null ? "" : name); return; }   // away mode: Ava takes the call
         String announcement = name != null
                 ? (name + " is calling")
@@ -194,11 +202,13 @@ final class AureonCallAnnouncer {
                 sharedEngineReady = (status == TextToSpeech.SUCCESS);
                 if (sharedEngineReady) {
                     sharedEngine.setLanguage(Locale.getDefault());
+                    try { sharedEngine.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()); } catch (Throwable ignored) { }
                     final Context app = appContext.getApplicationContext();
                     sharedEngine.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                        @Override public void onStart(String utteranceId) {}
-                        @Override public void onError(String utteranceId) {}
+                        @Override public void onStart(String utteranceId) { markSpoke(app); }
+                        @Override public void onError(String utteranceId) { releaseAudio(app); }
                         @Override public void onDone(String utteranceId) {
+                            releaseAudio(app);
                             if ("aureon_call_announce".equals(utteranceId)) startAnswerListening(app);
                         }
                     });
@@ -288,8 +298,10 @@ final class AureonCallAnnouncer {
 
     private static void speak(Context appContext, String text) {
         warmUp(appContext); // no-op if already warmed/warming
+        prepareAudio(appContext);
         if (sharedEngineReady) {
-            sharedEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_announce");
+            int r = sharedEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_announce");
+            if (r != TextToSpeech.SUCCESS) markDiag(appContext, "speakError", r);
             return;
         }
         // Engine not ready yet (very first call right after boot, before
@@ -299,10 +311,11 @@ final class AureonCallAnnouncer {
         fallback[0] = new TextToSpeech(appContext.getApplicationContext(), status -> {
             if (status != TextToSpeech.SUCCESS || fallback[0] == null) return;
             fallback[0].setLanguage(Locale.getDefault());
+            try { fallback[0].setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()); } catch (Throwable ignored) { }
             fallback[0].setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                @Override public void onStart(String utteranceId) {}
-                @Override public void onDone(String utteranceId) { shutdownQuietly(); startAnswerListening(appContext.getApplicationContext()); }
-                @Override public void onError(String utteranceId) { shutdownQuietly(); }
+                @Override public void onStart(String utteranceId) { markSpoke(appContext); }
+                @Override public void onDone(String utteranceId) { releaseAudio(appContext); shutdownQuietly(); startAnswerListening(appContext.getApplicationContext()); }
+                @Override public void onError(String utteranceId) { releaseAudio(appContext); shutdownQuietly(); }
                 private void shutdownQuietly() {
                     if (fallback[0] != null) {
                         try { fallback[0].shutdown(); } catch (Exception ignored) {}
@@ -312,5 +325,78 @@ final class AureonCallAnnouncer {
             });
             fallback[0].speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_announce");
         });
+    }
+
+    // ---- audibility while the phone rings + a small diagnostic record the app can show ----
+    private static final String DIAG = "aureon_call_diag";
+    private static int savedMusicVol = -1, savedAccVol = -1;
+    private static AudioFocusRequest focusReq;
+
+    private static SharedPreferences dp(Context c) { return c.getApplicationContext().getSharedPreferences(DIAG, Context.MODE_PRIVATE); }
+    private static void saveDiag(Context c, boolean numberSeen, boolean nameFound, boolean generic) {
+        dp(c).edit().putLong("at", System.currentTimeMillis()).putBoolean("numberSeen", numberSeen).putBoolean("nameFound", nameFound)
+                .putBoolean("generic", generic).putBoolean("spoke", false).putBoolean("test", false).putString("note", "").apply();
+    }
+    private static void markSpoke(Context c) { dp(c).edit().putBoolean("spoke", true).apply(); }
+    private static void markDiag(Context c, String note, int code) { dp(c).edit().putString("note", note + ":" + code).apply(); }
+
+    /** Ask for audio focus like TalkBack does and lift a very low volume, so the voice is not drowned by (or lost to) the ringtone. */
+    private static void prepareAudio(Context c) {
+        try {
+            AudioManager am = (AudioManager) c.getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                focusReq = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                        .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()).build();
+                am.requestAudioFocus(focusReq);
+            }
+            if (savedMusicVol < 0) {
+                int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), cur = am.getStreamVolume(AudioManager.STREAM_MUSIC), floor = Math.max(1, (int) (max * 0.6));
+                if (cur < floor) { savedMusicVol = cur; am.setStreamVolume(AudioManager.STREAM_MUSIC, floor, 0); }
+            }
+            if (savedAccVol < 0) {
+                int max = am.getStreamMaxVolume(10), cur = am.getStreamVolume(10), floor = Math.max(1, (int) (max * 0.6));   // 10 = STREAM_ACCESSIBILITY
+                if (max > 0 && cur < floor) { savedAccVol = cur; am.setStreamVolume(10, floor, 0); }
+            }
+            final Context app = c.getApplicationContext();
+            MAIN.postDelayed(new Runnable() { @Override public void run() { releaseAudio(app); } }, 15000);   // safety: never keep the volume raised
+        } catch (Throwable ignored) { }
+    }
+
+    private static void releaseAudio(Context c) {
+        try {
+            AudioManager am = (AudioManager) c.getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
+            if (am == null) return;
+            if (savedMusicVol >= 0) { am.setStreamVolume(AudioManager.STREAM_MUSIC, savedMusicVol, 0); savedMusicVol = -1; }
+            if (savedAccVol >= 0) { am.setStreamVolume(10, savedAccVol, 0); savedAccVol = -1; }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && focusReq != null) { am.abandonAudioFocusRequest(focusReq); focusReq = null; }
+        } catch (Throwable ignored) { }
+    }
+
+    /** What the Settings screen shows: did the last real call give us a number, was the contact found, did the voice actually start. */
+    static org.json.JSONObject diag(Context c) {
+        org.json.JSONObject o = new org.json.JSONObject();
+        try {
+            SharedPreferences p = dp(c);
+            o.put("at", p.getLong("at", 0)); o.put("numberSeen", p.getBoolean("numberSeen", false)); o.put("nameFound", p.getBoolean("nameFound", false));
+            o.put("generic", p.getBoolean("generic", false)); o.put("spoke", p.getBoolean("spoke", false)); o.put("note", p.getString("note", ""));
+            o.put("test", p.getBoolean("test", false));
+            o.put("ttsReady", sharedEngineReady);
+            AudioManager am = (AudioManager) c.getApplicationContext().getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                o.put("mediaVol", am.getStreamVolume(AudioManager.STREAM_MUSIC)); o.put("mediaMax", am.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+                o.put("ringerMode", am.getRingerMode());
+            }
+            NotificationManager nm = (NotificationManager) c.getApplicationContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) o.put("dnd", nm.getCurrentInterruptionFilter() > 1);
+        } catch (Exception ignored) { }
+        return o;
+    }
+
+    /** Settings > "Test caller voice": speaks a sample line the same way a real call would. */
+    static void testAnnounce(Context c) {
+        dp(c).edit().putLong("at", System.currentTimeMillis()).putBoolean("test", true).putBoolean("numberSeen", true).putBoolean("nameFound", true)
+                .putBoolean("generic", false).putBoolean("spoke", false).putString("note", "").apply();
+        speak(c.getApplicationContext(), "Test caller is calling");
     }
 }

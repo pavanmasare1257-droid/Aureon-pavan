@@ -227,6 +227,40 @@
       item.appendChild(tg); item.appendChild(full); c3.appendChild(item);
     });
     body.appendChild(c3);
+
+    // Caller voice check: shows why Ava may stay silent when the phone rings (voice engine, volume, Do Not Disturb, number, contact)
+    if (P.callTest && P.callDiag) {
+      var c4 = el('div', CARD), yn = function (v) { return v ? E('yes', 'haan') : E('no', 'nahi'); };
+      c4.appendChild(el('div', 'font-weight:600;margin-bottom:4px', E('Caller voice check', 'Caller voice check')));
+      c4.appendChild(el('div', 'font-size:13px;opacity:.75;line-height:1.5;margin-bottom:8px', E('Ava says who is calling when your phone rings. If she stays silent, press the test button and read the result.', 'Phone ring hone par Ava bolti hai kaun call kar raha hai. Wo chup rahe to test button dabao aur result padho.')));
+      var out = el('div', 'font-size:13px;line-height:1.6;white-space:pre-wrap;margin-top:8px');
+      function describe(d, title) {
+        var lines = [title];
+        var rm = [E('silent', 'silent'), E('vibrate', 'vibrate'), E('normal', 'normal')][d.ringerMode] || '?';
+        if (d.test) lines.push(E('Voice started: ', 'Voice shuru hui: ') + yn(d.spoke));
+        else { lines.push(E('Number received: ', 'Number mila: ') + yn(d.numberSeen) + '  |  ' + E('Contact found: ', 'Contact mila: ') + yn(d.nameFound) + '  |  ' + E('Voice started: ', 'Voice shuru hui: ') + yn(d.spoke)); }
+        lines.push(E('Media volume: ', 'Media volume: ') + d.mediaVol + '/' + d.mediaMax + '  |  ' + E('Ringer: ', 'Ringer: ') + rm + '  |  ' + E('Do Not Disturb: ', 'Do Not Disturb: ') + (d.dnd ? E('on', 'on') : E('off', 'off')) + '  |  ' + E('Voice engine ready: ', 'Voice engine ready: ') + yn(d.ttsReady));
+        if (d.note) lines.push(E('Note: ', 'Note: ') + d.note);
+        if (d.test) lines.push(d.spoke ? E('The voice started. If you heard nothing: raise the media volume and turn off Do Not Disturb.', 'Voice shuru hui. Sunayi na de to media volume badhao aur Do Not Disturb band karo.')
+          : E('The phone voice engine did not start. In phone Settings search "Text-to-speech", choose Google as the engine and install the voice data for your language.', 'Phone ka voice engine shuru nahi hua. Phone Settings me "Text-to-speech" search karo, Google engine chuno aur apni language ka voice data install karo.'));
+        else if (d.at) {
+          if (!d.numberSeen) lines.push(E('The phone did not give Aureon the caller number. Allow the Phone and Call logs permissions, and set battery to "Unrestricted" for Aureon.', 'Phone ne Aureon ko caller ka number nahi diya. Phone aur Call logs permission allow karo, aur Aureon ki battery "Unrestricted" karo.'));
+          else if (!d.nameFound) lines.push(E('The number came but no matching contact was found. Check the Contacts permission and that this number is saved in Contacts.', 'Number aaya par contact nahi mila. Contacts permission check karo aur ye number Contacts me saved ho.'));
+          else if (!d.spoke) lines.push(E('Number and contact were found but the voice did not start. Press the test button above to check the voice engine.', 'Number aur contact mile par voice shuru nahi hui. Upar test button dabake voice engine check karo.'));
+        }
+        return lines.join('\n');
+      }
+      var row4 = el('div', 'display:flex;gap:8px;flex-wrap:wrap');
+      row4.appendChild(button(E('Test caller voice', 'Test caller voice'), async function (b) {
+        b.disabled = true; out.textContent = E('Speaking a test line...', 'Test line bol rahi hu...');
+        try { out.textContent = describe(await P.callTest(), E('Test result', 'Test result')); } catch (e) { out.textContent = 'Error: ' + String((e && e.message) || e); }
+        b.disabled = false;
+      }, true));
+      row4.appendChild(button(E('Show last real call', 'Last asli call dikhao'), async function () {
+        try { var d = await P.callDiag(); out.textContent = d.at && !d.test ? describe(d, E('Last real call: ', 'Last asli call: ') + new Date(d.at).toLocaleString()) : E('No real call has been recorded yet. Call this phone once and press this again.', 'Abhi koi asli call record nahi hui. Is phone par ek call karo aur ye dobara dabao.'); } catch (e) { out.textContent = 'Error: ' + String((e && e.message) || e); }
+      }));
+      c4.appendChild(row4); c4.appendChild(out); body.appendChild(c4);
+    }
   }
 
   function wire() { var b = document.getElementById('away-open-row'); if (b && !b._w) { b._w = 1; b.addEventListener('click', openDashboard); } }

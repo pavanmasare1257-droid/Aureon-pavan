@@ -134,6 +134,23 @@ try {
   twin.start();
   console.log('[twin] ready: payments=' + twin.info.payments + ', email=' + twin.info.email + ', deploy targets=' + twin.info.deployTargets.length);
 } catch (e) { console.error('[twin] not started:', e && e.message); }
+
+// Ava on a website (v47): one <script> line puts a small Ava bubble on any site / HTML file. Public chat is a separate, tool-less Ava.
+// Manage sites in the app: Settings > Ava on my website. See embed-ava.js.
+try {
+  const csvLower = (v) => String(v || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  app.use(require('./embed-ava').createRouter({
+    express, verifyAuth, llm: require('./llm-text'), getDb: () => db,
+    publicBase: process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'https://aureone.onrender.com',
+    // same owner idea as the rest of Aureon: the owner flag set when the owner code was verified, or the AVA_OWNER_UIDS list
+    isOwnerUid: async (uid) => {
+      if (csvLower(process.env.AVA_OWNER_UIDS).includes(String(uid).toLowerCase())) return true;
+      if (!db) return false;
+      const d = await db.collection('users').doc(uid).collection('profile').doc('owner').get();
+      return !!(d.exists && d.data() && d.data().isOwner);
+    },
+  }));
+} catch (e) { console.error('[embed] not started:', e && e.message); }
 // Apps & Automation (v29): connect any MCP / REST / webhook app and let Aureon automate it. See connect.js.
 const connect = require('./connect');
 const llmText = require('./llm-text');
