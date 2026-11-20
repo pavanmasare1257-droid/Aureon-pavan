@@ -111,6 +111,38 @@ public class AureonActionsPlugin extends Plugin {
     }
 
     // ---- Teach Ava: record what the user does, replay it on command ----
+    // ---- Instant caller name: the "caller ID & spam app" role makes Android tell Aureon every incoming call + number before it rings ----
+    @PluginMethod
+    public void callScreeningStatus(PluginCall call) {
+        JSObject o = new JSObject();
+        boolean supported = android.os.Build.VERSION.SDK_INT >= 29, held = false;
+        try {
+            if (supported) {
+                android.app.role.RoleManager rm = (android.app.role.RoleManager) getContext().getSystemService(Context.ROLE_SERVICE);
+                held = rm != null && rm.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING);
+            }
+        } catch (Throwable ignored) { /* report as not held */ }
+        o.put("supported", supported); o.put("held", held);
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void callScreeningRequest(PluginCall call) {
+        if (android.os.Build.VERSION.SDK_INT < 29) { call.reject("Needs Android 10 or newer"); return; }
+        try {
+            android.app.role.RoleManager rm = (android.app.role.RoleManager) getContext().getSystemService(Context.ROLE_SERVICE);
+            if (rm == null || !rm.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING)) { call.reject("This phone does not offer the caller ID app role"); return; }
+            if (rm.isRoleHeld(android.app.role.RoleManager.ROLE_CALL_SCREENING)) { callScreeningStatus(call); return; }
+            startActivityForResult(call, rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_CALL_SCREENING), "onRoleResult");
+        } catch (Throwable t) { call.reject(String.valueOf(t.getMessage())); }
+    }
+
+    @com.getcapacitor.annotation.ActivityCallback
+    private void onRoleResult(PluginCall call, androidx.activity.result.ActivityResult result) {
+        if (call == null) return;
+        callScreeningStatus(call);
+    }
+
     // ---- Caller announcement check (Settings > Away mode > Caller voice check) ----
     private JSObject callDiagState() {
         try { return new JSObject(AureonCallAnnouncer.diag(getContext()).toString()); } catch (Exception e) { return new JSObject(); }

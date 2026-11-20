@@ -118,6 +118,20 @@ public final class OfflineVoiceCommandEngine {
         return containsAny(t, "pickup", "pick up", "picup", "uthao", "utha lo", "utha do", "utha le", "uthalo",
                 "answer", "receive", "recieve", "attend", "haan bolo", "उठाओ", "उठा लो", "उठा दो", "रिसीव", "पिकअप", "पिक अप");
     }
+    /** "decline", "reject", "cut", "kat", "kaat do", "call kaat do", "mat uthao"... - ONLY while a call is really ringing. */
+    static boolean isDeclineCommand(String raw) {
+        if (!AureonCallAnnouncer.isRinging()) return false;
+        String t = (raw == null ? "" : raw.toLowerCase(Locale.ROOT)).replaceAll("[^\\p{L}\\p{N} ]", " ").trim().replaceAll("\\s+", " ");
+        if (t.isEmpty()) return false;
+        String[] w = t.split(" ");
+        if (w.length > 5) return false;
+        for (String x : w) {
+            if (x.equals("kat") || x.equals("kaat") || x.equals("cut") || x.equals("reject") || x.equals("decline") || x.equals("disconnect")
+                    || x.equals("\u0915\u093e\u091f") || x.equals("\u0915\u091f") || x.equals("\u0930\u093f\u091c\u0947\u0915\u094d\u091f") || x.equals("\u0921\u093f\u0915\u094d\u0932\u093e\u0907\u0928")) return true;
+        }
+        return containsAny(t, "hang up", "hangup", "mat uthao", "nahi uthana", "nahi uthani", "call kat", "call kaat", "phone kat", "phone kaat",
+                "\u092e\u0924 \u0909\u0920\u093e\u0913", "\u0928\u0939\u0940\u0902 \u0909\u0920\u093e\u0928\u093e");
+    }
     private static boolean equalsAny(String lower, String... options) {
         for (String o : options) if (lower.equals(o)) return true;
         return false;
@@ -200,6 +214,20 @@ public final class OfflineVoiceCommandEngine {
                 }
                 // Couldn't figure out who to send it to — fall through so
                 // the AI can ask for clarification instead of staying silent.
+            }
+
+            // ---- Decline / cut an incoming call (checked BEFORE answering: "mat uthao" contains "uthao"). ----
+            if (isDeclineCommand(lower)) {
+                if (AureonCallAnnouncer.declineRingingCall(context)) { result.onHandled("Declining the call."); return true; }
+                if (!AureonAccessibilityService.isEnabled()) {
+                    result.onHandled("Allow Aureon's Phone permission (or Accessibility) in Settings to decline calls by voice.");
+                    return true;
+                }
+                boolean cut = AureonAccessibilityService.clickTextWithRetry("Decline", 2500)
+                        || AureonAccessibilityService.clickTextWithRetry("Reject", 2500)
+                        || AureonAccessibilityService.clickTextWithRetry("\u0905\u0938\u094d\u0935\u0940\u0915\u093e\u0930 \u0915\u0930\u0947\u0902", 2500);
+                result.onHandled(cut ? "Declining the call." : "Couldn't find a Decline button on screen.");
+                return true;
             }
 
             // ---- Answer an incoming call.

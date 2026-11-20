@@ -43,7 +43,7 @@ final class AureonCallAnnouncer {
     // (the one that has the number) -> the caller's name was never spoken.
     // Now: no number -> wait a little for the numbered broadcast, number -> speak
     // the name at once; the same number is never spoken twice for one ring.
-    private static final long NO_NUMBER_WAIT_MS = 1600;
+    private static final long NO_NUMBER_WAIT_MS = 900;   // the numbered broadcast usually follows within a second; do not keep the caller waiting
     private static final android.os.Handler MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
     private static volatile boolean ringing = false;
     private static volatile String lastSpokenKey = "";
@@ -112,6 +112,7 @@ final class AureonCallAnnouncer {
     private static synchronized void announceOnce(Context app, String key, String text) {
         long now = System.currentTimeMillis();
         if (key.equals(lastSpokenKey) && now - lastSpokenAt < 8000) return;
+        if ("generic".equals(key) && !lastSpokenKey.isEmpty() && now - lastSpokenAt < 12000) return;   // the name was already said
         lastSpokenKey = key;
         lastSpokenAt = now;
         speak(app, text);
@@ -278,6 +279,11 @@ final class AureonCallAnnouncer {
         ArrayList<String> list = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         if (list == null) return false;
         for (String heard : list) {
+            if (heard != null && OfflineVoiceCommandEngine.isDeclineCommand(heard)) {
+                stopAnswerListening();
+                declineRingingCall(app);
+                return true;
+            }
             if (heard == null || !OfflineVoiceCommandEngine.isAnswerCommand(heard)) continue;
             stopAnswerListening();
             OfflineVoiceCommandEngine.handle(app, heard, new OfflineVoiceCommandEngine.Result() {
@@ -325,6 +331,32 @@ final class AureonCallAnnouncer {
             });
             fallback[0].speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_announce");
         });
+    }
+
+
+    /** Called by AureonCallScreeningService the moment Android announces an incoming call (with the number). */
+    static void onScreenedCall(final Context app, String number) {
+        final String num = number == null ? "" : number.trim();
+        final String digits = num.replaceAll("[^0-9]", "");
+        final String name = digits.isEmpty() ? null : lookupContactName(app, num);
+        saveDiag(app, !digits.isEmpty(), name != null, digits.isEmpty());
+        ringing = true;                                           // the pickup / decline listener needs this
+        MAIN.postDelayed(new Runnable() { @Override public void run() { ringing = false; } }, 60000);   // safety if the IDLE broadcast never comes
+        if (AureonAwayMode.isActive(app)) { AureonAwayMode.onRinging(app, num, name == null ? "" : name); return; }
+        String line = name != null ? (name + " is calling")
+                : (digits.isEmpty() ? "Unknown number is calling" : ("Incoming call from " + spellNumber(num)));
+        announceOnce(app, digits.isEmpty() ? "private" : digits, line);
+    }
+
+    /** "decline" / "kat": rejects the ringing call (needs the Phone permission that also lets Ava answer). */
+    static boolean declineRingingCall(Context app) {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P
+                    || ContextCompat.checkSelfPermission(app, Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED) return false;
+            android.telecom.TelecomManager tm = (android.telecom.TelecomManager) app.getSystemService(Context.TELECOM_SERVICE);
+            if (tm == null) return false;
+            return tm.endCall();
+        } catch (Throwable t) { return false; }
     }
 
     // ---- audibility while the phone rings + a small diagnostic record the app can show ----

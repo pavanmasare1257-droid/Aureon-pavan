@@ -123,6 +123,17 @@
                 android:value="Announces caller name via text-to-speech when a call rings" />
         </service>
 
+        <!-- Receives every incoming call (with its number) before it rings, so Ava can say the caller's name at once.
+             Active only after the user grants Aureon the call-screening role; it never blocks or changes a call. -->
+        <service
+            android:name=".AureonCallScreeningService"
+            android:permission="android.permission.BIND_SCREENING_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
+            </intent-filter>
+        </service>
+
         <!-- Ava watching the screen (MediaProjection). Starts only after the user accepts Android's capture dialog. -->
         <service
             android:name=".AvaScreenWatchService"

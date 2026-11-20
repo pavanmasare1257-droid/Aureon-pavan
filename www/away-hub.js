@@ -233,6 +233,27 @@
       var c4 = el('div', CARD), yn = function (v) { return v ? E('yes', 'haan') : E('no', 'nahi'); };
       c4.appendChild(el('div', 'font-weight:600;margin-bottom:4px', E('Caller voice check', 'Caller voice check')));
       c4.appendChild(el('div', 'font-size:13px;opacity:.75;line-height:1.5;margin-bottom:8px', E('Ava says who is calling when your phone rings. If she stays silent, press the test button and read the result.', 'Phone ring hone par Ava bolti hai kaun call kar raha hai. Wo chup rahe to test button dabao aur result padho.')));
+      c4.appendChild(el('div', 'font-size:13px;line-height:1.5;margin-bottom:8px', E('While the phone rings you can say "pickup" to answer, or "decline" / "kat" to cut the call.', 'Phone ring hote waqt "pickup" bolo to call uthegi, "decline" ya "kat" bolo to call kat jayegi.')));
+      if (P.callScreeningStatus && P.callScreeningRequest) {
+        var sc = el('div', 'border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:10px;margin-bottom:10px;font-size:13px;line-height:1.5');
+        var scText = el('div'), scBtnBox = el('div', 'margin-top:8px'); sc.appendChild(scText); sc.appendChild(scBtnBox); c4.appendChild(sc);
+        var paintSc = async function () {
+          scBtnBox.textContent = '';
+          try {
+            var st2 = await P.callScreeningStatus();
+            if (!st2.supported) { scText.textContent = E('Instant caller name needs Android 10 or newer.', 'Instant caller name ke liye Android 10 ya naya chahiye.'); return; }
+            if (st2.held) { scText.textContent = E('Instant caller name is ON: Android tells Aureon who is calling the moment the phone rings.', 'Instant caller name ON hai: phone ring hote hi Android Aureon ko batata hai kaun call kar raha hai.'); scText.style.color = '#7ee2a8'; return; }
+            scText.textContent = E('Recommended: turn on instant caller name. Without it some phones (Realme, Oppo) tell Aureon about the call late or not at all, so Ava is late or silent. This makes Aureon the phone\'s "caller ID & spam" app; Aureon never blocks or changes a call. You can change it back in phone Settings > Apps > Default apps.',
+              'Recommended: instant caller name on karo. Iske bina kuch phones (Realme, Oppo) Aureon ko call ki khabar der se ya bilkul nahi dete, isliye Ava late ya chup rehti hai. Isse Aureon phone ka "caller ID & spam" app ban jata hai; Aureon koi call block ya change nahi karta. Wapas badalna ho to phone Settings > Apps > Default apps me jao.');
+            scBtnBox.appendChild(button(E('Turn on instant caller name', 'Instant caller name on karo'), async function (b) {
+              b.disabled = true;
+              try { await P.callScreeningRequest(); } catch (e) { scText.textContent = 'Error: ' + String((e && e.message) || e); }
+              paintSc();
+            }, true));
+          } catch (e) { scText.textContent = ''; }
+        };
+        paintSc();
+      }
       var out = el('div', 'font-size:13px;line-height:1.6;white-space:pre-wrap;margin-top:8px');
       function describe(d, title) {
         var lines = [title];
