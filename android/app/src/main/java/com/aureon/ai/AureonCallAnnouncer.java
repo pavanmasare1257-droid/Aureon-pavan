@@ -202,7 +202,7 @@ final class AureonCallAnnouncer {
             sharedEngine = new TextToSpeech(appContext.getApplicationContext(), status -> {
                 sharedEngineReady = (status == TextToSpeech.SUCCESS);
                 if (sharedEngineReady) {
-                    sharedEngine.setLanguage(Locale.getDefault());
+                    applyAvaVoice(sharedEngine, "en");
                     try { sharedEngine.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()); } catch (Throwable ignored) { }
                     final Context app = appContext.getApplicationContext();
                     sharedEngine.setOnUtteranceProgressListener(new UtteranceProgressListener() {
@@ -306,6 +306,7 @@ final class AureonCallAnnouncer {
         warmUp(appContext); // no-op if already warmed/warming
         prepareAudio(appContext);
         if (sharedEngineReady) {
+            applyAvaVoice(sharedEngine, text.matches("(?s).*[\\u0900-\\u097F].*") ? "hi" : "en");
             int r = sharedEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_announce");
             if (r != TextToSpeech.SUCCESS) markDiag(appContext, "speakError", r);
             return;
@@ -316,7 +317,7 @@ final class AureonCallAnnouncer {
         final TextToSpeech[] fallback = new TextToSpeech[1];
         fallback[0] = new TextToSpeech(appContext.getApplicationContext(), status -> {
             if (status != TextToSpeech.SUCCESS || fallback[0] == null) return;
-            fallback[0].setLanguage(Locale.getDefault());
+            applyAvaVoice(fallback[0], "en");
             try { fallback[0].setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()); } catch (Throwable ignored) { }
             fallback[0].setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String utteranceId) { markSpoke(appContext); }
@@ -357,6 +358,17 @@ final class AureonCallAnnouncer {
             if (tm == null) return false;
             return tm.endCall();
         } catch (Throwable t) { return false; }
+    }
+
+
+    /** Ava's own voice, the same settings the in-app Ava uses: English-India (Hindi-India for Devanagari), pitch 1.12, speed 1.02. */
+    static void applyAvaVoice(TextToSpeech t, String lang) {
+        try {
+            Locale want = "hi".equals(lang) ? new Locale("hi", "IN") : new Locale("en", "IN");
+            t.setLanguage(t.isLanguageAvailable(want) >= TextToSpeech.LANG_AVAILABLE ? want : Locale.getDefault());
+            t.setPitch(1.12f);
+            t.setSpeechRate(1.02f);
+        } catch (Throwable ignored) { /* keep the engine's default voice */ }
     }
 
     // ---- audibility while the phone rings + a small diagnostic record the app can show ----

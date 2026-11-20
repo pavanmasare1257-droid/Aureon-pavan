@@ -207,6 +207,7 @@ final class AureonAwayMode {
                 try {
                     Locale want = en(app) ? new Locale("en", "IN") : new Locale("hi", "IN");
                     tts.setLanguage(tts.isLanguageAvailable(want) >= TextToSpeech.LANG_AVAILABLE ? want : Locale.getDefault());
+                    tts.setPitch(1.12f); tts.setSpeechRate(1.02f);   // Ava's own voice settings
                     // VOICE_COMMUNICATION = the in-call stream. Plain MEDIA is muted or ducked by most phones while a call is active.
                     tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
