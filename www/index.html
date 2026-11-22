@@ -332,6 +332,11 @@
           </button>
           </div>
           <div class="list-group">
+          <button class="list-row" data-open="dash">
+            <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+            <span class="row-text"><span class="row-title">My Dashboard</span><span class="row-sub">Gmail, calls, approvals, apps &mdash; sab ek jagah</span></span>
+            <svg class="row-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
           <button class="list-row" data-open="connect">
             <svg class="row-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
             <span class="row-text"><span class="row-title">Apps &amp; Automation</span><span class="row-sub" id="sub-connect">Koi bhi app jodo, kaam automate karo</span></span>
@@ -388,9 +393,28 @@
           <div id="pg-result"></div>
         </section>
 
+        <section class="settings-card settings-pane hidden" data-pane="dash" data-title="My Dashboard">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span id="dash-time" class="card-sub" style="margin:0"></span><button class="primary-btn" id="dash-refresh" style="padding:7px 14px">Refresh</button></div>
+          <div id="dash-box"></div>
+        </section>
+
         <section class="settings-card settings-pane hidden" data-pane="connect" data-title="Apps &amp; Automation">
           <p class="card-sub">Koi bhi app jodo — <b>MCP server</b>, <b>REST API</b> ya <b>Webhook</b> (Slack, Discord, Zapier, Make, n8n...). Phir Aureon ko seedhi bhasha me kaam batao, wo apne aap us app ko chalayegi. Token server par encrypt hoke rehta hai, app ko wapas kabhi nahi aata.</p>
-          <div class="section-label" style="margin-top:12px">Jude hue apps <span id="ap-count"></span></div>
+          <div class="section-label" style="margin-top:12px">Gmail <span id="gm-state"></span></div>
+          <div id="gm-box"></div>
+          <div id="gm-msg" class="card-sub"></div>
+
+          <div class="section-label" style="margin-top:18px">Claude connector <span id="mc-state"></span></div>
+          <div id="mc-box"></div>
+          <div id="mc-msg" class="card-sub"></div>
+
+          <div class="section-label" style="margin-top:18px">Phone ke apps <span id="pa-count"></span></div>
+          <div class="card-sub">Jo apps is phone me install hain. Kisi par tap karo: kholo ya Aureon se jodo.</div>
+          <input id="pa-search" class="text-input" style="margin-top:8px" placeholder="App ka naam dhundo" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <div id="pa-list"></div>
+          <div id="pa-msg" class="card-sub"></div>
+
+          <div class="section-label" style="margin-top:18px">Jude hue apps <span id="ap-count"></span></div>
           <div id="ap-list"></div>
           <button class="primary-btn" id="ap-toggle" style="width:100%;margin:8px 0">App jodo</button>
           <div id="ap-form" class="hidden">
@@ -438,6 +462,13 @@
           <div id="cs-msg" class="card-sub"></div>
           <div class="section-label" style="margin-top:12px">Installed skills <span id="cs-count"></span></div>
           <div id="cs-list"></div>
+
+          <div class="section-label" style="margin-top:18px">Repo task (PR) <span id="rt-state"></span></div>
+          <div class="card-sub">Batao kya badalna hai. Ava proposal banayegi, tum diff dekhke Approve karoge, tab GitHub par <b>Pull Request</b> banegi. Main branch me kuch seedha nahi jaata, merge tum khud karoge. Sirf owner ke liye.</div>
+          <textarea id="rt-task" class="text-input" style="width:100%;min-height:80px;margin-top:8px" placeholder="Jaise: backend/gmail-hub.js me important mails ki limit 20 se 30 kar do"></textarea>
+          <button class="primary-btn" id="rt-go" style="width:100%;margin:8px 0">Proposal banao</button>
+          <div id="rt-msg" class="card-sub"></div>
+          <div id="rt-box"></div>
         </section>
 
         <section class="settings-card settings-pane hidden" data-pane="theme" data-title="Theme">
@@ -556,6 +587,9 @@
   <script src="device-guard.js"></script>
   <script src="skills-hub.js"></script>
   <script src="connect-hub.js"></script>
+  <script src="dash-hub.js"></script>
+  <script src="code-hub.js"></script>
+  <script src="mail-hub.js"></script>
   <script src="docs-hub.js"></script>
   <script src="away-hub.js"></script>
   <script src="embed-hub.js"></script>
