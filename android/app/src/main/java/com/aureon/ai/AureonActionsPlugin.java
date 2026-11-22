@@ -310,6 +310,113 @@ public class AureonActionsPlugin extends Plugin {
         }
     }
 
+    /** Every app that has a launcher icon on this phone: [{label, pkg}], A-Z. Stays on the phone: the app list is never uploaded. */
+    @PluginMethod
+    public void listInstalledApps(PluginCall call) {
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            Intent launcherIntent = new Intent(Intent.ACTION_MAIN);
+            launcherIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+            List<ResolveInfo> apps = pm.queryIntentActivities(launcherIntent, 0);
+            java.util.TreeMap<String, String> byPkg = new java.util.TreeMap<String, String>();
+            for (ResolveInfo info : apps) {
+                String pkg = info.activityInfo.packageName;
+                if (pkg == null || pkg.equals(getContext().getPackageName()) || byPkg.containsKey(pkg)) continue;
+                CharSequence lab = info.loadLabel(pm);
+                byPkg.put(pkg, lab == null ? pkg : lab.toString());
+            }
+            List<String[]> rows = new ArrayList<String[]>();
+            for (java.util.Map.Entry<String, String> e : byPkg.entrySet()) rows.add(new String[]{e.getValue(), e.getKey()});
+            java.util.Collections.sort(rows, new java.util.Comparator<String[]>() {
+                @Override public int compare(String[] a, String[] b) { return a[0].compareToIgnoreCase(b[0]); }
+            });
+            com.getcapacitor.JSArray arr = new com.getcapacitor.JSArray();
+            for (String[] r : rows) {
+                JSObject o = new JSObject();
+                o.put("label", r[0]);
+                o.put("pkg", r[1]);
+                arr.put(o);
+            }
+            JSObject ret = new JSObject();
+            ret.put("apps", arr);
+            call.resolve(ret);
+        } catch (Throwable t) {
+            call.reject("Couldn't list apps: " + t.getMessage());
+        }
+    }
+
+    /** Opens one app by its exact package name (used by the Apps & Automation list and the dashboard quick-launch). */
+    @PluginMethod
+    public void openAppByPackage(PluginCall call) {
+        String pkg = call.getString("pkg");
+        if (pkg == null || pkg.trim().isEmpty()) { call.reject("pkg is required"); return; }
+        try {
+            Intent launchIntent = getContext().getPackageManager().getLaunchIntentForPackage(pkg.trim());
+            if (launchIntent == null) { call.reject("This app can't be opened (maybe it was uninstalled)."); return; }
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(launchIntent);
+            JSObject ret = new JSObject();
+            ret.put("opened", pkg.trim());
+            call.resolve(ret);
+        } catch (Throwable t) {
+            call.reject("Couldn't open the app: " + t.getMessage());
+        }
+    }
+
+    /** App Agent: Ava operates one chosen app (loop runs natively, sensitive clicks need the owner's Allow tap). */
+    @PluginMethod
+    public void agentStart(PluginCall call) {
+        String backendUrl = call.getString("backendUrl");
+        String key = call.getString("key");
+        String pkg = call.getString("pkg");
+        String label = call.getString("label");
+        String goal = call.getString("goal");
+        if (backendUrl == null || key == null || pkg == null || goal == null) { call.reject("backendUrl, key, pkg and goal are required"); return; }
+        if (!AureonAccessibilityService.isEnabled()) { call.reject("accessibility_off"); return; }
+        if (AureonAppAgent.isDeniedPackage(pkg)) { call.reject("denied_app"); return; }
+        boolean started = AureonAppAgent.start(getContext(), backendUrl.replaceAll("/+$", ""), key, pkg, label == null ? pkg : label, goal);
+        if (!started) { call.reject("busy"); return; }
+        JSObject ret = new JSObject();
+        ret.put("started", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void agentStop(PluginCall call) {
+        AureonAppAgent.stop();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void agentStatus(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("running", AureonAppAgent.isRunning());
+        ret.put("status", AureonAppAgent.status());
+        ret.put("last", AureonAppAgent.lastResult(getContext()));
+        call.resolve(ret);
+    }
+
+    /** Urgent-mail watcher on/off (backend URL + the phone's watch key come from the app). */
+    @PluginMethod
+    public void mailWatchSet(PluginCall call) {
+        Boolean enabled = call.getBoolean("enabled", false);
+        String backendUrl = call.getString("backendUrl");
+        String key = call.getString("key");
+        AureonMailWatch.configure(getContext(), enabled != null && enabled.booleanValue(), backendUrl == null ? null : backendUrl.replaceAll("/+$", ""), key);
+        JSObject ret = new JSObject();
+        ret.put("enabled", AureonMailWatch.isEnabled(getContext()));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void mailWatchStatus(PluginCall call) {
+        AureonMailWatch.rearmIfEnabled(getContext(), 300000L);   // opening the app re-arms the alarm chain (it can be lost after a force-stop)
+        JSObject ret = new JSObject();
+        ret.put("enabled", AureonMailWatch.isEnabled(getContext()));
+        ret.put("last", AureonMailWatch.lastResult(getContext()));
+        call.resolve(ret);
+    }
+
     @PluginMethod
     public void saveOwnerPhoto(PluginCall call) {
         String base64 = call.getString("base64", "");

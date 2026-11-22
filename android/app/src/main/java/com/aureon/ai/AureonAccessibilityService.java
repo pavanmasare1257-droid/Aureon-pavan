@@ -300,6 +300,125 @@ public class AureonAccessibilityService extends AccessibilityService {
     private static volatile boolean scanSawPassword = false;
     public static boolean lastScanSawPassword() { return scanSawPassword; }
 
+    // ---- App Agent (v52): a numbered snapshot of the visible screen, and acting on a node by that number.
+    // Password fields are never exposed (empty text) and never typed into. Every act re-checks the label, so a changed screen is refused, not guessed.
+    private static final int UI_MAX_NODES = 150;
+
+    private static String uiLabel(AccessibilityNodeInfo n) {
+        CharSequence t = n.getText();
+        CharSequence d = n.getContentDescription();
+        String s = (t != null && t.length() > 0) ? t.toString() : (d != null ? d.toString() : "");
+        s = s.replace('\n', ' ').trim();
+        return s.length() > 80 ? s.substring(0, 80) : s;
+    }
+
+    private static void collectUi(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> out, int depth) {
+        if (node == null || out.size() >= UI_MAX_NODES || depth > 25) return;
+        if (!node.isVisibleToUser()) return;
+        CharSequence t = node.getText();
+        CharSequence d = node.getContentDescription();
+        boolean useful = (t != null && t.length() > 0) || (d != null && d.length() > 0)
+                || node.isClickable() || node.isEditable() || node.isScrollable();
+        if (useful) out.add(AccessibilityNodeInfo.obtain(node));
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                collectUi(child, out, depth + 1);
+                child.recycle();
+            }
+        }
+    }
+
+    private static void recycleAll(List<AccessibilityNodeInfo> list) {
+        for (AccessibilityNodeInfo n : list) { try { n.recycle(); } catch (Throwable ignored) { } }
+    }
+
+    /** JSON: {"pkg":"...","nodes":[{"i":0,"k":"Button","t":"text","d":"desc","c":true,"e":false,"s":false,"x":false}]} or "" if no screen. */
+    public static String snapshotUi() {
+        if (instance == null) return "";
+        AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+        if (root == null) return "";
+        List<AccessibilityNodeInfo> list = new ArrayList<AccessibilityNodeInfo>();
+        try {
+            collectUi(root, list, 0);
+            JSONObject o = new JSONObject();
+            CharSequence pkg = root.getPackageName();
+            o.put("pkg", pkg == null ? "" : pkg.toString());
+            JSONArray arr = new JSONArray();
+            for (int i = 0; i < list.size(); i++) {
+                AccessibilityNodeInfo n = list.get(i);
+                boolean pw = n.isPassword();
+                String t = pw ? "" : (n.getText() != null ? n.getText().toString().replace('\n', ' ').trim() : "");
+                String d = pw ? "(password field)" : (n.getContentDescription() != null ? n.getContentDescription().toString().replace('\n', ' ').trim() : "");
+                if (t.length() > 80) t = t.substring(0, 80);
+                if (d.length() > 80) d = d.substring(0, 80);
+                String cls = n.getClassName() == null ? "" : n.getClassName().toString();
+                int dot = cls.lastIndexOf('.');
+                JSONObject j = new JSONObject();
+                j.put("i", i);
+                j.put("k", dot >= 0 ? cls.substring(dot + 1) : cls);
+                j.put("t", t);
+                j.put("d", d);
+                j.put("c", n.isClickable());
+                j.put("e", n.isEditable() && !pw);
+                j.put("s", n.isScrollable());
+                j.put("x", n.isChecked());
+                arr.put(j);
+            }
+            o.put("nodes", arr);
+            return o.toString();
+        } catch (Throwable t) {
+            return "";
+        } finally {
+            recycleAll(list);
+            root.recycle();
+        }
+    }
+
+    /** Click node #index, only if its label still equals expectLabel (the screen did not change under us). */
+    public static boolean agentClick(int index, String expectLabel) {
+        if (instance == null) return false;
+        AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+        if (root == null) return false;
+        List<AccessibilityNodeInfo> list = new ArrayList<AccessibilityNodeInfo>();
+        try {
+            collectUi(root, list, 0);
+            if (index < 0 || index >= list.size()) return false;
+            AccessibilityNodeInfo n = list.get(index);
+            if (!uiLabel(n).equals(expectLabel == null ? "" : expectLabel.trim())) return false;
+            return clickNode(n);
+        } catch (Throwable t) {
+            return false;
+        } finally {
+            recycleAll(list);
+            root.recycle();
+        }
+    }
+
+    /** Type text into editable node #index (never into a password field), only if its label still matches. */
+    public static boolean agentType(int index, String text, String expectLabel) {
+        if (instance == null || text == null) return false;
+        AccessibilityNodeInfo root = instance.getRootInActiveWindow();
+        if (root == null) return false;
+        List<AccessibilityNodeInfo> list = new ArrayList<AccessibilityNodeInfo>();
+        try {
+            collectUi(root, list, 0);
+            if (index < 0 || index >= list.size()) return false;
+            AccessibilityNodeInfo n = list.get(index);
+            if (!n.isEditable() || n.isPassword()) return false;
+            if (!uiLabel(n).equals(expectLabel == null ? "" : expectLabel.trim())) return false;
+            n.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+            Bundle args = new Bundle();
+            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+            return n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+        } catch (Throwable t) {
+            return false;
+        } finally {
+            recycleAll(list);
+            root.recycle();
+        }
+    }
+
     public static String activePackage() {
         if (instance == null) return "";
         AccessibilityNodeInfo root = instance.getRootInActiveWindow();
