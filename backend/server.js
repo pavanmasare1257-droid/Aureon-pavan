@@ -126,7 +126,6 @@ try {
     },
   });
   twinRef = twin;
-  app.locals.twin = twin;   // read by the MCP connector (read-only overview)
   // The twin expects req.uid; Aureon's verifyAuth sets req.verifiedUid (the uid always comes from the verified token, never from the body).
   const twinAuth = (req, res, next) => verifyAuth(req, res, () => { req.uid = req.verifiedUid; next(); });
   const twinRouter = express.Router();
@@ -157,38 +156,6 @@ const connect = require('./connect');
 const llmText = require('./llm-text');
 app.use('/api/connect', connect.createRouter({ express, verifyAuth, getDb: () => db, llm: llmText }));
 connect.startScheduler({ getDb: () => db, llm: llmText });
-
-// Gmail (v51, READ-ONLY): Aureon reads the inbox and tells which mails matter. Needs GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, see GMAIL-SETUP.md.
-let gmailCoreRef = null;
-try {
-  const gmailRouter = require('./gmail-hub').createRouter({
-    express, verifyAuth, getDb: () => db, llm: llmText,
-    publicBase: process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'https://aureone.onrender.com',
-  });
-  gmailCoreRef = gmailRouter.core;
-  app.use('/api/gmail', gmailRouter);
-} catch (e) { console.error('[gmail] not started:', e && e.message); }
-
-// v52: shared owner check (the owner flag set when the owner code was verified, or the AVA_OWNER_UIDS list) for the powerful, owner-only tools below.
-const ownerUid = async (uid) => {
-  if (String(process.env.AVA_OWNER_UIDS || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean).includes(String(uid).toLowerCase())) return true;
-  if (!db) return false;
-  try { const d = await db.collection('users').doc(uid).collection('profile').doc('owner').get(); return !!(d.exists && d.data() && d.data().isOwner); } catch (e) { return false; }
-};
-// Claude connector (MCP): read-only tools + "draft an e-mail" (a draft only; sending needs the owner's tap in the app). See mcp-server.js.
-try {
-  const mcp = require('./mcp-server').createMcp({ express, verifyAuth, getDb: () => db, gmailCore: gmailCoreRef, getTwin: () => app.locals.twin });
-  app.use('/api/mcp-token', mcp.tokenRouter);
-  app.use('/mcp', mcp.mcpRouter);
-} catch (e) { console.error('[mcp] not started:', e && e.message); }
-// Code mode "Repo task": the AI proposes a change, the OWNER approves, a Pull Request is opened (never merged, never on main). See repo-task.js.
-try {
-  app.use('/api/repotask', require('./repo-task').createRouter({ express, verifyAuth, isOwnerUid: ownerUid, llm: llmText }));
-} catch (e) { console.error('[repotask] not started:', e && e.message); }
-// App Agent: Ava operates one phone app the owner chose; sensitive clicks need the owner's Allow tap on the phone. See app-agent.js.
-try {
-  app.use('/api/appagent', require('./app-agent').createRouter({ express, verifyAuth, llm: llmText }));
-} catch (e) { console.error('[appagent] not started:', e && e.message); }
 
 function requireDb(res) {
   if (!db) {

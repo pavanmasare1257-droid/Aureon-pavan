@@ -877,13 +877,6 @@ async function sendMessage() {
     if (docHandled) { turnOverrideModel = null; return; }
   }
 
-  // Mail (v53): "important mail batao" / "koi urgent mail aaya?" -> Ava reads Gmail (read-only) and answers right here.
-  if (!image && !fileText && !fileName && !sentImages.length && window.AureonMail) {
-    let mailHandled = false;
-    try { mailHandled = await window.AureonMail.chatIntent(text); } catch (e) { mailHandled = false; }
-    if (mailHandled) { turnOverrideModel = null; return; }
-  }
-
   // Offline-capable shortcut: battery / open app / set alarm never need the
   // AI backend at all — if the message clearly asks for one of these, do it
   // natively right away, with zero network involved.
