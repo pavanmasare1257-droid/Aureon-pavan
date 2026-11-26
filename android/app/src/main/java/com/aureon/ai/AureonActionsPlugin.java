@@ -417,6 +417,41 @@ public class AureonActionsPlugin extends Plugin {
         call.resolve(ret);
     }
 
+    /** Repeat caller = loud ring (3 calls from one number in 10 min). */
+    @PluginMethod
+    public void repeatCallerSet(PluginCall call) {
+        Boolean enabled = call.getBoolean("enabled", true);
+        AureonRepeatCaller.setEnabled(getContext(), enabled == null || enabled.booleanValue());
+        repeatCallerStatus(call);
+    }
+
+    @PluginMethod
+    public void repeatCallerStatus(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("enabled", AureonRepeatCaller.isEnabled(getContext()));
+        ret.put("policyAccess", AureonRepeatCaller.hasPolicyAccess(getContext()));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void repeatCallerTest(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("used", AureonRepeatCaller.test(getContext()));
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void openDndAccess(PluginCall call) {
+        try {
+            Intent i = new Intent("android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve();
+        } catch (Throwable t) {
+            call.reject("Couldn't open the Do Not Disturb access screen: " + t.getMessage());
+        }
+    }
+
     @PluginMethod
     public void saveOwnerPhoto(PluginCall call) {
         String base64 = call.getString("base64", "");

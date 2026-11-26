@@ -282,6 +282,35 @@
       }));
       c4.appendChild(row4); c4.appendChild(out); body.appendChild(c4);
     }
+
+    // Repeat caller = loud ring (v54): the same number calls 3 times within 10 minutes -> the ring goes loud even on silent / vibrate / Do Not Disturb
+    if (P.repeatCallerStatus && P.repeatCallerSet) {
+      var c5 = el('div', CARD), t5 = el('div', 'font-size:13px;line-height:1.6;margin:8px 0'), b5 = el('div', 'display:flex;gap:8px;flex-wrap:wrap');
+      c5.appendChild(el('div', 'font-weight:600;margin-bottom:4px', E('Repeat caller = loud ring', 'Baar-baar call = tez ring')));
+      c5.appendChild(el('div', 'font-size:13px;opacity:.75;line-height:1.5', E(
+        'If the same number calls 3 times within 10 minutes, Aureon rings loudly even when the phone is on silent, vibrate or Do Not Disturb. Without any special permission it plays your ringtone on the alarm sound at full volume; with Do Not Disturb access it lifts silent mode and uses the phone\'s own ringtone. Everything goes back as soon as you answer or the call ends.',
+        'Ek hi number 10 min me 3 baar call kare to phone silent, vibrate ya Do Not Disturb me bhi tez ring bajti hai. Koi khaas permission na ho to tumhari ringtone alarm awaaz par full volume me bajti hai; Do Not Disturb access doge to silent mode hatake phone ki apni ringtone bajti hai. Call uthate hi ya khatam hote hi sab pehle jaisa ho jaata hai.')));
+      c5.appendChild(t5); c5.appendChild(b5); body.appendChild(c5);
+      var paint5 = async function () {
+        b5.textContent = '';
+        try {
+          var st5 = await P.repeatCallerStatus();
+          t5.textContent = E('Status: ', 'Status: ') + (st5.enabled ? E('ON', 'ON') : E('OFF', 'OFF')) + '  |  ' + E('Do Not Disturb access: ', 'Do Not Disturb access: ') + (st5.policyAccess ? E('yes', 'haan') : E('no (alarm sound will be used)', 'nahi (alarm awaaz use hogi)'));
+          b5.appendChild(button(st5.enabled ? E('Turn off', 'Band karo') : E('Turn on', 'Chalu karo'), async function (b) {
+            b.disabled = true; try { await P.repeatCallerSet({ enabled: !st5.enabled }); } catch (e) { t5.textContent = 'Error: ' + String((e && e.message) || e); }
+            paint5();
+          }, true));
+          b5.appendChild(button(E('Test loud ring (6 sec)', 'Tez ring test (6 sec)'), async function (b) {
+            b.disabled = true; try { await P.repeatCallerTest(); } catch (e) { t5.textContent = 'Error: ' + String((e && e.message) || e); }
+            setTimeout(function () { b.disabled = false; }, 6500);
+          }));
+          if (!st5.policyAccess && P.openDndAccess) b5.appendChild(button(E('Give Do Not Disturb access', 'Do Not Disturb access do'), async function () {
+            try { await P.openDndAccess(); } catch (e) { t5.textContent = 'Error: ' + String((e && e.message) || e); }
+          }));
+        } catch (e) { t5.textContent = ''; }
+      };
+      paint5();
+    }
   }
 
   function wire() { var b = document.getElementById('away-open-row'); if (b && !b._w) { b._w = 1; b.addEventListener('click', openDashboard); } }

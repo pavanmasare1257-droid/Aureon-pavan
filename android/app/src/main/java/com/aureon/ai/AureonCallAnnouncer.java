@@ -43,7 +43,7 @@ final class AureonCallAnnouncer {
     // (the one that has the number) -> the caller's name was never spoken.
     // Now: no number -> wait a little for the numbered broadcast, number -> speak
     // the name at once; the same number is never spoken twice for one ring.
-    private static final long NO_NUMBER_WAIT_MS = 900;   // the numbered broadcast usually follows within a second; do not keep the caller waiting
+    private static final long NO_NUMBER_WAIT_MS = 900;   // fast name: the numbered broadcast usually follows within a second; a late one still replaces the generic line (QUEUE_FLUSH)
     private static final android.os.Handler MAIN = new android.os.Handler(android.os.Looper.getMainLooper());
     private static volatile boolean ringing = false;
     private static volatile String lastSpokenKey = "";
@@ -60,6 +60,7 @@ final class AureonCallAnnouncer {
         String state = intent.getStringExtra(TelephonyManager.EXTRA_STATE);
         if (TelephonyManager.EXTRA_STATE_OFFHOOK.equals(state)) AureonAwayMode.onOffhook(context.getApplicationContext());
         else if (TelephonyManager.EXTRA_STATE_IDLE.equals(state)) AureonAwayMode.onIdle(context.getApplicationContext());
+        if (!TelephonyManager.EXTRA_STATE_RINGING.equals(state)) AureonRepeatCaller.onCallEnded(context.getApplicationContext());
         if (!TelephonyManager.EXTRA_STATE_RINGING.equals(state)) {
             // IDLE / OFFHOOK = ring is over (answered, declined or missed)
             ringing = false;
@@ -105,7 +106,7 @@ final class AureonCallAnnouncer {
         String announcement = name != null
                 ? (name + " is calling")
                 : ("Incoming call from " + spellNumber(number));
-        announceOnce(app, digits.isEmpty() ? number : digits, announcement);
+        announceOnce(app, callKey(digits, number), announcement);
     }
 
     /** Speak once per (ring, caller): the static receiver AND the service receiver both fire for one ring. */
@@ -115,7 +116,24 @@ final class AureonCallAnnouncer {
         if ("generic".equals(key) && !lastSpokenKey.isEmpty() && now - lastSpokenAt < 12000) return;   // the name was already said
         lastSpokenKey = key;
         lastSpokenAt = now;
+        if (!"generic".equals(key) && !"private".equals(key)) AureonRepeatCaller.onRing(app, key);   // 3rd call from the same number in 10 min = loud ring
         speak(app, text);
+    }
+
+    /** Same caller = same key, whether the number arrives as +91 98765 43210, 098765 43210 or 9876543210 (last 10 digits). */
+    private static String callKey(String digits, String raw) {
+        if (digits == null || digits.isEmpty()) return raw == null ? "" : raw;
+        return digits.length() > 10 ? digits.substring(digits.length() - 10) : digits;
+    }
+
+    /** The shared TTS engine can silently die (OEM battery manager kills the speech service): drop it so the next ring builds a fresh one. */
+    private static void resetEngine(Context appContext) {
+        synchronized (ENGINE_LOCK) {
+            try { if (sharedEngine != null) sharedEngine.shutdown(); } catch (Throwable ignored) { }
+            sharedEngine = null;
+            sharedEngineReady = false;
+        }
+        warmUp(appContext);
     }
 
     /** "9876543210" -> "9 8 7 6 5 4 3 2 1 0" so the voice reads digit by digit. */
@@ -308,8 +326,9 @@ final class AureonCallAnnouncer {
         if (sharedEngineReady) {
             applyAvaVoice(sharedEngine, text.matches("(?s).*[\\u0900-\\u097F].*") ? "hi" : "en");
             int r = sharedEngine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aureon_call_announce");
-            if (r != TextToSpeech.SUCCESS) markDiag(appContext, "speakError", r);
-            return;
+            if (r == TextToSpeech.SUCCESS) return;
+            markDiag(appContext, "speakError", r);
+            resetEngine(appContext);   // the speech service died: rebuild it and speak this time through the one-off engine below
         }
         // Engine not ready yet (very first call right after boot, before
         // warmUp() finished) — fall back to a one-off engine for just this
@@ -346,7 +365,7 @@ final class AureonCallAnnouncer {
         if (AureonAwayMode.isActive(app)) { AureonAwayMode.onRinging(app, num, name == null ? "" : name); return; }
         String line = name != null ? (name + " is calling")
                 : (digits.isEmpty() ? "Unknown number is calling" : ("Incoming call from " + spellNumber(num)));
-        announceOnce(app, digits.isEmpty() ? "private" : digits, line);
+        announceOnce(app, digits.isEmpty() ? "private" : callKey(digits, num), line);
     }
 
     /** "decline" / "kat": rejects the ringing call (needs the Phone permission that also lets Ava answer). */
@@ -394,14 +413,18 @@ final class AureonCallAnnouncer {
                         .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()).build();
                 am.requestAudioFocus(focusReq);
             }
-            if (savedMusicVol < 0) {
-                int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), cur = am.getStreamVolume(AudioManager.STREAM_MUSIC), floor = Math.max(1, (int) (max * 0.6));
-                if (cur < floor) { savedMusicVol = cur; am.setStreamVolume(AudioManager.STREAM_MUSIC, floor, 0); }
-            }
-            if (savedAccVol < 0) {
-                int max = am.getStreamMaxVolume(10), cur = am.getStreamVolume(10), floor = Math.max(1, (int) (max * 0.6));   // 10 = STREAM_ACCESSIBILITY
-                if (max > 0 && cur < floor) { savedAccVol = cur; am.setStreamVolume(10, floor, 0); }
-            }
+            try {
+                if (savedMusicVol < 0) {
+                    int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), cur = am.getStreamVolume(AudioManager.STREAM_MUSIC), floor = Math.max(1, (int) (max * 0.75));
+                    if (cur < floor) { savedMusicVol = cur; am.setStreamVolume(AudioManager.STREAM_MUSIC, floor, 0); }
+                }
+            } catch (Throwable ignored) { }
+            try {
+                if (savedAccVol < 0) {
+                    int max = am.getStreamMaxVolume(10), cur = am.getStreamVolume(10), floor = Math.max(1, (int) (max * 0.75));   // 10 = STREAM_ACCESSIBILITY
+                    if (max > 0 && cur < floor) { savedAccVol = cur; am.setStreamVolume(10, floor, 0); }
+                }
+            } catch (Throwable ignored) { }
             final Context app = c.getApplicationContext();
             MAIN.postDelayed(new Runnable() { @Override public void run() { releaseAudio(app); } }, 15000);   // safety: never keep the volume raised
         } catch (Throwable ignored) { }
